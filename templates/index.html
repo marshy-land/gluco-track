@@ -145,7 +145,7 @@
 
         @media (min-width: 1024px) {
             .actions-grid {
-                grid-template-columns: repeat(4, 1fr) !important;
+                grid-template-columns: 1fr 1fr !important;
             }
         }
 
@@ -490,26 +490,10 @@
             </div>
         </div>
 
-        <!-- Actions Grid (Upload and Log) -->
-        <div style="display: grid; grid-template-columns: 1fr; gap: 1.5rem;" class="actions-grid">
-            <!-- Upload/Import Area -->
-            <div class="glass-panel" style="display: flex; flex-direction: column; justify-content: space-between;">
-                <div>
-                    <h3 class="chart-title">Backfill Historical Data</h3>
-                    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
-                        Download your full glucose history CSV from <a href="https://www.libreview.com" target="_blank" style="color: var(--color-accent); text-decoration: none;">LibreView.com</a>, and upload it here to append all your historical readings.
-                    </p>
-                </div>
-                <div class="dropzone" id="dropzone" onclick="document.getElementById('csv-file').click()" style="margin-top: auto; padding: 1.5rem; border: 2px dashed rgba(255, 255, 255, 0.1); border-radius: 12px; text-align: center; cursor: pointer; transition: border-color 0.2s;">
-                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="height: 40px; width: 40px; margin: 0 auto 0.5rem auto; display: block; opacity: 0.7;">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
-                    </svg>
-                    <p style="font-weight: 500; font-size: 0.9rem; margin: 0;">Drag and drop your LibreView CSV here</p>
-                    <p style="font-size: 0.75rem; color: var(--text-secondary); margin: 0.25rem 0 0 0;">or click to browse files</p>
-                    <input type="file" id="csv-file" accept=".csv" style="display: none;" onchange="handleFileSelect(event)">
-                    <div class="upload-status" id="upload-status" style="font-size: 0.8rem; margin-top: 0.5rem; color: var(--text-secondary);"></div>
-                </div>
-            </div>            <!-- Quick Log Insulin Dose -->
+        
+        <!-- Action Logging Grid -->
+        <div style="display: grid; gap: 1.5rem;" class="actions-grid">
+            <!-- Quick Log Insulin Dose -->
             <div class="glass-panel" style="display: flex; flex-direction: column;">
                 <h3 class="chart-title" style="margin-bottom: 0.5rem;">Log Insulin Dose</h3>
                 <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
@@ -552,7 +536,7 @@
                     <div id="log-status" style="font-size: 0.8rem; text-align: center; margin-top: 0.25rem;"></div>
                 </form>
             </div>
-
+            
             <!-- Quick Log Food / Carbs -->
             <div class="glass-panel" style="display: flex; flex-direction: column;">
                 <h3 class="chart-title" style="margin-bottom: 0.5rem;">Log Food / Carbs</h3>
@@ -580,8 +564,30 @@
                     <div id="log-food-status" style="font-size: 0.8rem; text-align: center; margin-top: 0.25rem;"></div>
                 </form>
             </div>
+        </div>
 
-
+        <!-- Advanced / System Grid -->
+        <h2 style="margin-top: 2.5rem; margin-bottom: -0.5rem; font-family: 'Outfit', sans-serif; font-size: 1.5rem; color: var(--text-secondary);">Advanced Settings</h2>
+        <div style="display: grid; gap: 1.5rem; margin-top: 1rem;" class="actions-grid">
+            <!-- Upload/Import Area -->
+            <div class="glass-panel" style="display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                    <h3 class="chart-title">Backfill Historical Data</h3>
+                    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                        Download your full glucose history CSV from <a href="https://www.libreview.com" target="_blank" style="color: var(--color-accent); text-decoration: none;">LibreView.com</a>, and upload it here to append all your historical readings.
+                    </p>
+                </div>
+                <div class="dropzone" id="dropzone" onclick="document.getElementById('csv-file').click()" style="margin-top: auto; padding: 1.5rem; border: 2px dashed rgba(255, 255, 255, 0.1); border-radius: 12px; text-align: center; cursor: pointer; transition: border-color 0.2s;">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="height: 40px; width: 40px; margin: 0 auto 0.5rem auto; display: block; opacity: 0.7;">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                    </svg>
+                    <p style="font-weight: 500; font-size: 0.9rem; margin: 0;">Drag and drop your LibreView CSV here</p>
+                    <p style="font-size: 0.75rem; color: var(--text-secondary); margin: 0.25rem 0 0 0;">or click to browse files</p>
+                    <input type="file" id="csv-file" accept=".csv" style="display: none;" onchange="handleFileSelect(event)">
+                    <div class="upload-status" id="upload-status" style="font-size: 0.8rem; margin-top: 0.5rem; color: var(--text-secondary);"></div>
+                </div>
+            </div>
+            
             <!-- Tuning & Heuristics -->
             <div class="glass-panel" style="display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
@@ -929,7 +935,7 @@
         }
 
         // Render Chart.js
-        function renderChart(dataPoints, predictionPoints = null, minTime = null, maxTime = null) {
+        function renderChart(dataPoints, predictionPoints = null, foodData = null, minTime = null, maxTime = null) {
             const ctx = document.getElementById('glucoseChart').getContext('2d');
             
             if (chart) {
