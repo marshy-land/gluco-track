@@ -16,7 +16,7 @@ def get_connection():
     return psycopg2.connect(DATABASE_URL)
 
 def init_db():
-    """Initializes the database by executing schema.sql if tables do not exist."""
+    """Initializes the database and cleans up any duplicate insulin logs."""
     schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
     if not os.path.exists(schema_path):
         print("schema.sql not found, skipping table initialization.")
@@ -29,8 +29,18 @@ def init_db():
     try:
         with conn.cursor() as cur:
             cur.execute(schema_sql)
+            
+            # Clean up duplicate insulin records (if any)
+            cur.execute("""
+                DELETE FROM insulin_doses 
+                WHERE id NOT IN (
+                    SELECT MIN(id) 
+                    FROM insulin_doses 
+                    GROUP BY timestamp
+                )
+            """)
         conn.commit()
-        print("Database initialized successfully.")
+        print("Database initialized and duplicate insulin logs cleaned up.")
     except Exception as e:
         conn.rollback()
         print(f"Error initializing database: {e}")
@@ -161,8 +171,19 @@ def insert_insulin_doses(doses):
         return 0
 
     conn = get_connection()
+    inserted_count = 0
     try:
         with conn.cursor() as cur:
+            # Fetch existing timestamps in the range of the incoming doses to filter duplicates
+            timestamps = [d["timestamp"] for d in doses]
+            cur.execute("SELECT DISTINCT timestamp FROM insulin_doses WHERE timestamp = ANY(%s)", (timestamps,))
+            existing_timestamps = {row[0] for row in cur.fetchall()}
+
+            # Filter out duplicates
+            filtered_doses = [d for d in doses if d["timestamp"] not in existing_timestamps]
+            if not filtered_doses:
+                return 0
+
             data = [
                 (
                     d["timestamp"],
@@ -174,18 +195,18 @@ def insert_insulin_doses(doses):
                     d.get("device"),
                     d.get("serial_number")
                 )
-                for d in doses
+                for d in filtered_doses
             ]
             
             query = """
                 INSERT INTO insulin_doses (
                     timestamp, rapid_acting, long_acting, meal, correction, user_change, device, serial_number
                 ) VALUES %s
-                ON CONFLICT (timestamp, rapid_acting, long_acting, meal, correction, user_change) DO NOTHING
             """
             execute_values(cur, query, data)
+            inserted_count = len(filtered_doses)
         conn.commit()
-        return len(doses)
+        return inserted_count
     except Exception as e:
         conn.rollback()
         print(f"Error inserting insulin doses: {e}")
