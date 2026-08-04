@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from parser import parse_libreview_csv
 from db import get_latest_reading, get_history, get_statistics, insert_readings, insert_insulin_doses, get_insulin_history
+from prediction import predict_glucose, calculate_iob, suggest_correction
 
 app = FastAPI(title="Gluco Track API", version="1.0.0")
 
@@ -46,6 +47,42 @@ def api_insulin_history(hours: int = Query(default=24, ge=1, le=720)):
     for d in doses:
         d['timestamp'] = d['timestamp'].isoformat()
     return doses
+
+@app.get("/api/predictions")
+def api_predictions(
+    target: float = Query(default=120.0, description="Target glucose in mg/dL"),
+    isf: float = Query(default=50.0, description="Insulin Sensitivity Factor (ISF) in mg/dL/U")
+):
+    """Calculates forecasts for the next 15, 30, and 60 minutes and estimates correction bolus requirements."""
+    latest = get_latest_reading()
+    if not latest:
+        return JSONResponse(status_code=404, content={"message": "No glucose readings found to forecast."})
+    
+    # We fetch the last 3 hours of readings to compute trends robustly
+    history = get_history(3)
+    predictions = predict_glucose(history)
+    
+    # We fetch recent insulin doses in the last 4 hours to compute IOB
+    recent_doses = get_insulin_history(4)
+    iob = calculate_iob(recent_doses)
+    
+    # Estimate correction bolus
+    suggested = suggest_correction(latest['value'], iob, target_glucose=target, isf=isf)
+    
+    # Format times for JSON response
+    latest['timestamp'] = latest['timestamp'].isoformat()
+    
+    return {
+        "current_glucose": latest['value'],
+        "latest_reading": latest,
+        "predictions": predictions,
+        "active_iob": iob,
+        "suggested_correction": suggested,
+        "parameters": {
+            "target_glucose": target,
+            "isf": isf
+        }
+    }
 
 @app.get("/api/glucose/stats")
 def api_stats(hours: int = Query(default=24, ge=1, le=720)):

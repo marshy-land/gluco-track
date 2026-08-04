@@ -131,6 +131,12 @@
             }
         }
 
+        @media (min-width: 1024px) {
+            .top-row {
+                grid-template-columns: 1fr 1.3fr 1.4fr;
+            }
+        }
+
         /* Live Glucose Card */
         .live-card {
             display: flex;
@@ -350,6 +356,38 @@
                 <div class="live-time" id="last-updated">Updating...</div>
             </div>
 
+            <!-- Predictive Insights -->
+            <div class="glass-panel" style="display: flex; flex-direction: column; justify-content: space-between; min-height: 250px;">
+                <div>
+                    <h3 class="chart-title" style="margin-bottom: 0.75rem;">Predictive Insights</h3>
+                    <div style="display: flex; flex-direction: column; gap: 0.6rem; font-size: 0.85rem;">
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 0.4rem;">
+                            <span style="color: var(--text-secondary);">Forecast (15m):</span>
+                            <span id="forecast-15" style="font-weight: 600;">--</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 0.4rem;">
+                            <span style="color: var(--text-secondary);">Forecast (30m):</span>
+                            <span id="forecast-30" style="font-weight: 600;">--</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 0.4rem;">
+                            <span style="color: var(--text-secondary);">Forecast (60m):</span>
+                            <span id="forecast-60" style="font-weight: 600;">--</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem; border-top: 1px solid var(--panel-border); padding-top: 0.75rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span class="metric-title" style="font-size: 0.7rem;">Active Insulin (IOB)</span>
+                        <span id="iob-display" style="font-weight: 700; color: #f59e0b;">-- U</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(59, 130, 246, 0.05); padding: 0.4rem 0.6rem; border-radius: 8px; border: 1px solid rgba(59, 130, 246, 0.15);">
+                        <span class="metric-title" style="font-size: 0.7rem; color: var(--text-primary);">Bolus Suggestion</span>
+                        <span id="correction-display" style="font-weight: 800; color: #3b82f6; font-size: 1.1rem;">-- U</span>
+                    </div>
+                </div>
+            </div>
+
             <!-- Core Statistics -->
             <div class="glass-panel" style="display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
@@ -551,6 +589,7 @@
             } catch (err) {
                 console.warn("Could not fetch latest glucose data:", err);
             }
+            fetchPredictions();
         }
 
         // Fetch statistics
@@ -597,14 +636,34 @@
                     y: r.value
                 }));
 
-                renderChart(chartData);
+                let predictionsData = null;
+                if (hours === 24) {
+                    const preds = await fetchPredictions();
+                    if (preds && preds.length > 0 && chartData.length > 0) {
+                        const latestPt = chartData[chartData.length - 1];
+                        predictionsData = [latestPt]; // start from latest reading
+                        
+                        preds.forEach(p => {
+                            const predTime = new Date(latestPt.x.getTime() + p.minutes * 60000);
+                            predictionsData.push({
+                                x: predTime,
+                                y: p.value
+                            });
+                        });
+                    }
+                } else {
+                    // Update IOB/Corrections box anyway
+                    fetchPredictions();
+                }
+
+                renderChart(chartData, predictionsData);
             } catch (err) {
                 console.error("Error loading history:", err);
             }
         }
 
         // Render Chart.js
-        function renderChart(dataPoints) {
+        function renderChart(dataPoints, predictionPoints = null) {
             const ctx = document.getElementById('glucoseChart').getContext('2d');
             
             if (chart) {
@@ -621,21 +680,38 @@
             fillGradient.addColorStop(0, 'rgba(59, 130, 246, 0.15)');
             fillGradient.addColorStop(1, 'rgba(21, 22, 43, 0.01)');
 
+            const datasets = [{
+                label: 'Glucose',
+                data: dataPoints,
+                borderColor: lineGradient,
+                backgroundColor: fillGradient,
+                borderWidth: 3,
+                pointRadius: dataPoints.length > 300 ? 0 : 2,
+                pointHoverRadius: 6,
+                pointBackgroundColor: '#3b82f6',
+                fill: true,
+                tension: 0.3
+            }];
+
+            if (predictionPoints && predictionPoints.length > 0) {
+                datasets.push({
+                    label: 'Projection',
+                    data: predictionPoints,
+                    borderColor: 'rgba(59, 130, 246, 0.75)',
+                    borderWidth: 2,
+                    borderDash: [6, 4],
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    pointBackgroundColor: '#3b82f6',
+                    fill: false,
+                    tension: 0.1
+                });
+            }
+
             chart = new Chart(ctx, {
                 type: 'line',
                 data: {
-                    datasets: [{
-                        label: 'Glucose',
-                        data: dataPoints,
-                        borderColor: lineGradient,
-                        backgroundColor: fillGradient,
-                        borderWidth: 3,
-                        pointRadius: dataPoints.length > 300 ? 0 : 2,
-                        pointHoverRadius: 6,
-                        pointBackgroundColor: '#3b82f6',
-                        fill: true,
-                        tension: 0.3
-                    }]
+                    datasets: datasets
                 },
                 options: {
                     responsive: true,
@@ -854,6 +930,45 @@
                     }
                 }
             });
+        }
+
+        // Fetch and display predictions
+        async function fetchPredictions() {
+            try {
+                const res = await fetch('/api/predictions');
+                if (!res.ok) throw new Error();
+                const data = await res.json();
+                
+                const f15 = data.predictions.find(p => p.minutes === 15);
+                const f30 = data.predictions.find(p => p.minutes === 30);
+                const f60 = data.predictions.find(p => p.minutes === 60);
+                
+                const formatPrediction = (elemId, f) => {
+                    const el = document.getElementById(elemId);
+                    if (!f) {
+                        el.innerText = '--';
+                        el.className = '';
+                        return;
+                    }
+                    el.innerText = `${Math.round(f.value)} mg/dL`;
+                    el.className = ''; // reset
+                    if (f.value < 70) el.classList.add('state-low');
+                    else if (f.value > 180) el.classList.add('state-high');
+                    else el.classList.add('state-normal');
+                };
+                
+                formatPrediction('forecast-15', f15);
+                formatPrediction('forecast-30', f30);
+                formatPrediction('forecast-60', f60);
+                
+                document.getElementById('iob-display').innerText = `${data.active_iob} U`;
+                document.getElementById('correction-display').innerText = `${data.suggested_correction} U`;
+                
+                return data.predictions;
+            } catch (err) {
+                console.warn("Could not fetch predictions:", err);
+                return [];
+            }
         }
     </script>
 </body>
