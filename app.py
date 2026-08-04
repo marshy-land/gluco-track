@@ -8,6 +8,7 @@ from fastapi import FastAPI, File, UploadFile, Query, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from parser import parse_libreview_csv
+import db
 from db import get_latest_reading, get_history, get_statistics, insert_readings, insert_insulin_doses, get_insulin_history
 from prediction import predict_glucose, calculate_iob, suggest_correction
 

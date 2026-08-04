@@ -145,7 +145,7 @@
 
         @media (min-width: 1024px) {
             .actions-grid {
-                grid-template-columns: 1fr 1.15fr 1.15fr !important;
+                grid-template-columns: repeat(4, 1fr) !important;
             }
         }
 
@@ -968,7 +968,7 @@
                 });
             }
 
-            if (foodData && foodData.length > 0) {
+            if (foodData && Array.isArray(foodData) && foodData.length > 0) {
                 const loggedFood = foodData.filter(f => !f.is_imputed).map(f => ({ x: new Date(f.timestamp), y: f.carbs_g, raw: f }));
                 const imputedFood = foodData.filter(f => f.is_imputed).map(f => ({ x: new Date(f.timestamp), y: f.carbs_g, raw: f }));
                 
@@ -1087,29 +1087,58 @@
         // Log food manually
         async function handleLogFood(event) {
             event.preventDefault();
-            const formData = new FormData(event.target);
-            const data = Object.fromEntries(formData.entries());
-            
+            const statusEl = document.getElementById('log-food-status');
+            statusEl.innerText = "Logging food...";
+            statusEl.style.color = "var(--text-secondary)";
+
+            const carbs = parseFloat(document.getElementById('log-carbs').value) || null;
+            const foodType = document.getElementById('log-food-type').value;
+            const timeVal = document.getElementById('log-food-time').value;
+
+            if (carbs === null) {
+                statusEl.innerText = "Error: Enter grams of carbohydrates.";
+                statusEl.style.color = "var(--color-low)";
+                return;
+            }
+
+            let timestamp = null;
+            if (timeVal) {
+                timestamp = new Date(timeVal).toISOString();
+            }
+
+            const payload = {
+                timestamp: timestamp,
+                carbs_g: carbs,
+                food_type: foodType
+            };
+
             try {
-                const res = await fetch('/api/food/add', {
+                const res = await fetch('/api/food/log', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        timestamp: data.time,
-                        carbs_g: parseFloat(data.carbs),
-                        food_type: data.description
-                    })
+                    body: JSON.stringify(payload)
                 });
                 
+                const result = await res.json();
                 if (res.ok) {
-                    event.target.reset();
-                    loadHistory(24);
-                    fetchNutritionalImpact();
+                    statusEl.innerText = "Food logged successfully!";
+                    statusEl.style.color = "var(--color-target)";
+                    
+                    // Reset fields
+                    document.getElementById('log-carbs').value = "";
+                    document.getElementById('log-food-type').value = "";
+                    
+                    // Refresh data on screen
+                    const activeFilter = document.querySelector('.filter-btn.active');
+                    const hours = activeFilter ? parseInt(activeFilter.getAttribute('onclick').match(/\d+/)[0]) : 24;
+                    loadHistory(hours);
                 } else {
-                    alert('Failed to log food.');
+                    statusEl.innerText = `Error: ${result.detail || 'Failed to log food'}`;
+                    statusEl.style.color = "var(--color-low)";
                 }
             } catch (err) {
-                console.error(err);
+                statusEl.innerText = `Failed to connect: ${err.message}`;
+                statusEl.style.color = "var(--color-low)";
             }
         }
 
@@ -1426,63 +1455,7 @@
             }
         }
 
-        // Handle manual food logging form submission
-        async function handleLogFood(e) {
-            e.preventDefault();
-            const statusEl = document.getElementById('log-food-status');
-            statusEl.innerText = "Logging food...";
-            statusEl.style.color = "var(--text-secondary)";
-
-            const carbs = parseFloat(document.getElementById('log-carbs').value) || null;
-            const foodType = document.getElementById('log-food-type').value;
-            const timeVal = document.getElementById('log-food-time').value;
-
-            if (carbs === null) {
-                statusEl.innerText = "Error: Enter grams of carbohydrates.";
-                statusEl.style.color = "var(--color-low)";
-                return;
-            }
-
-            let timestamp = null;
-            if (timeVal) {
-                timestamp = new Date(timeVal).toISOString();
-            }
-
-            const payload = {
-                timestamp: timestamp,
-                carbs_g: carbs,
-                food_type: foodType
-            };
-
-            try {
-                const res = await fetch('/api/food/log', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                
-                const result = await res.json();
-                if (res.ok) {
-                    statusEl.innerText = "Food logged successfully!";
-                    statusEl.style.color = "var(--color-target)";
-                    
-                    // Reset fields
-                    document.getElementById('log-carbs').value = "";
-                    document.getElementById('log-food-type').value = "";
-                    
-                    // Refresh data on screen
-                    const activeFilter = document.querySelector('.filter-btn.active');
-                    const hours = activeFilter ? parseInt(activeFilter.getAttribute('onclick').match(/\d+/)[0]) : 24;
-                    loadHistory(hours);
-                } else {
-                    statusEl.innerText = `Error: ${result.detail || 'Failed to log food'}`;
-                    statusEl.style.color = "var(--color-low)";
-                }
-            } catch (err) {
-                statusEl.innerText = `Failed to connect: ${err.message}`;
-                statusEl.style.color = "var(--color-low)";
-            }
-        }
+        // Duplicate handleLogFood removed
 
         // Fetch and display diagnostics and time-of-day ISFs
         async function fetchHeuristicsStatus() {
