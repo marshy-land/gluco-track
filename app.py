@@ -36,7 +36,7 @@ def api_latest():
     return reading
 
 @app.get("/api/glucose/history")
-def api_history(hours: int = Query(default=24, ge=1, le=720)):
+def api_history(hours: int = Query(default=24, ge=1, le=4320)):
     """Retrieves glucose readings within the last N hours (max 30 days / 720h)."""
     readings = get_history(hours)
     for r in readings:
@@ -44,7 +44,7 @@ def api_history(hours: int = Query(default=24, ge=1, le=720)):
     return readings
 
 @app.get("/api/insulin/history")
-def api_insulin_history(hours: int = Query(default=24, ge=1, le=720)):
+def api_insulin_history(hours: int = Query(default=24, ge=1, le=4320)):
     """Retrieves insulin logs within the last N hours."""
     doses = get_insulin_history(hours)
     for d in doses:
@@ -191,7 +191,7 @@ def api_shortcut_log(
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/glucose/stats")
-def api_stats(hours: int = Query(default=24, ge=1, le=720)):
+def api_stats(hours: int = Query(default=24, ge=1, le=4320)):
     """Computes stats (average, GMI, Time-in-Range) for the last N hours."""
     stats = get_statistics(hours)
     if not stats:
