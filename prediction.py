@@ -14,6 +14,19 @@ def predict_glucose(readings, minutes_ahead=[15, 30, 60], dampening_half_life=25
 
     # Sort readings chronologically
     sorted_readings = sorted(readings, key=lambda x: x['timestamp'])
+
+    # Try adaptive predictive model first
+    try:
+        from ml_heuristics import predict_adaptive_glucose
+        latest_time = sorted_readings[-1]['timestamp']
+        doses = db.get_insulin_history(4)
+        iob_val = calculate_iob(doses, current_time=latest_time)
+        
+        adaptive_preds = predict_adaptive_glucose(readings, iob_val)
+        if adaptive_preds:
+            return adaptive_preds
+    except Exception as e:
+        print(f"Adaptive prediction failed, falling back to linear: {e}")
     
     # Use the last 8 readings (approx. 2 hours of passive/live readings) for the local trend
     trend_readings = sorted_readings[-8:]
@@ -117,13 +130,23 @@ def calculate_iob(doses, current_time=None, action_duration_mins=240):
 
     return round(total_iob, 2)
 
-def suggest_correction(current_glucose, iob, target_glucose=120, isf=50):
+def suggest_correction(current_glucose, iob, target_glucose=120, isf=None, current_time=None):
     """
     Suggests correction insulin units:
     Correction = (Current Glucose - Target Glucose) / ISF - IOB
     """
     if current_glucose <= target_glucose:
         return 0.0
+
+    if isf is None:
+        try:
+            from ml_heuristics import load_heuristics_params, get_time_of_day_bucket
+            params = load_heuristics_params()
+            t = current_time or datetime.now(timezone.utc)
+            bucket = get_time_of_day_bucket(t)
+            isf = params.get("isf", {}).get(bucket, 50.0)
+        except Exception:
+            isf = 50.0
 
     needed_bolus = (current_glucose - target_glucose) / isf
     suggested = needed_bolus - iob

@@ -54,7 +54,7 @@ def api_insulin_history(hours: int = Query(default=24, ge=1, le=720)):
 @app.get("/api/predictions")
 def api_predictions(
     target: float = Query(default=120.0, description="Target glucose in mg/dL"),
-    isf: float = Query(default=50.0, description="Insulin Sensitivity Factor (ISF) in mg/dL/U")
+    isf: Optional[float] = Query(default=None, description="Insulin Sensitivity Factor (ISF) in mg/dL/U")
 ):
     """Calculates forecasts for the next 15, 30, and 60 minutes and estimates correction bolus requirements."""
     latest = get_latest_reading()
@@ -69,9 +69,20 @@ def api_predictions(
     recent_doses = get_insulin_history(4)
     iob = calculate_iob(recent_doses)
     
-    # Estimate correction bolus
-    suggested = suggest_correction(latest['value'], iob, target_glucose=target, isf=isf)
+    # Estimate correction bolus using correct timestamp context
+    suggested = suggest_correction(latest['value'], iob, target_glucose=target, isf=isf, current_time=latest['timestamp'])
     
+    # Resolve what ISF was actually used to display on UI
+    used_isf = isf
+    if used_isf is None:
+        try:
+            from ml_heuristics import load_heuristics_params, get_time_of_day_bucket
+            params = load_heuristics_params()
+            bucket = get_time_of_day_bucket(latest['timestamp'])
+            used_isf = params.get("isf", {}).get(bucket, 50.0)
+        except Exception:
+            used_isf = 50.0
+
     # Format times for JSON response
     latest['timestamp'] = latest['timestamp'].isoformat()
     
@@ -83,9 +94,41 @@ def api_predictions(
         "suggested_correction": suggested,
         "parameters": {
             "target_glucose": target,
-            "isf": isf
+            "isf": used_isf
         }
     }
+
+@app.post("/api/heuristics/train")
+def api_train_heuristics(days: int = Query(default=30, ge=7, le=90)):
+    """Triggers the statistical machine learning model training job on the server."""
+    try:
+        from ml_heuristics import train_predictive_model
+        success, msg = train_predictive_model(history_days=days)
+        if not success:
+            raise HTTPException(status_code=400, detail=msg)
+        return {"success": True, "message": msg}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/heuristics/status")
+def api_heuristics_status():
+    """Retrieves the status, time-of-day ISF values, and training diagnostics of the heuristics engine."""
+    try:
+        from ml_heuristics import load_heuristics_params
+        params = load_heuristics_params()
+        return {
+            "model_trained": params.get("model_trained", False),
+            "isf": params.get("isf", {
+                "morning": 50.0,
+                "afternoon": 50.0,
+                "evening": 50.0,
+                "night": 50.0,
+                "global": 50.0
+            }),
+            "training_stats": params.get("training_stats")
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 class InsulinDoseLog(BaseModel):
     timestamp: Optional[datetime] = None
