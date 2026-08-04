@@ -257,8 +257,8 @@ class TestChallengerImputation(unittest.TestCase):
 
     def test_near_logged_dose_divisor(self):
         """
-        If a dose is logged within 45 mins of drop start time, candidate imputation is not suppressed,
-        but its confidence score is divided by 2.
+        If a dose is logged within 120 mins of drop start time, candidate imputation is not suppressed,
+        but its confidence score is divided by 2.5.
         """
         readings = []
         for m in range(0, 95, 5):
@@ -267,12 +267,12 @@ class TestChallengerImputation(unittest.TestCase):
             readings.append({"timestamp": t, "value": round(val, 1)})
 
         logged_doses = [
-            {"timestamp": self.base_time + timedelta(minutes=15), "rapid_acting": 1.0}
+            {"timestamp": self.base_time + timedelta(minutes=60), "rapid_acting": 1.0}
         ]
 
         imputed = detect_and_impute_missing_doses(readings, logged_doses)
-        self.assertEqual(len(imputed), 1, "Imputation near logged dose should not be completely suppressed")
-        self.assertEqual(imputed[0]['confidence_score'], 0.50, "Confidence should be divided by 2 (1.0 -> 0.50)")
+        # Raw confidence is 1.0. With divisor 2.5, confidence = 0.40 (filtered out since < 0.50)
+        self.assertEqual(len(imputed), 0, "Imputation near logged dose should be filtered out by 2.5 divisor")
 
     def test_minimum_3h_gap_between_imputed_doses(self):
         """

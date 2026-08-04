@@ -173,22 +173,24 @@ def detect_and_impute_missing_doses(
             # Clamp estimated dose to physiological range [0.5 U, 15.0 U]
             imputed_dose = max(0.5, min(15.0, round(raw_imputed_dose, 1)))
 
-            # Check if there is already a logged dose near t_start (+/- 45 mins)
+            # Check if there is already a logged dose near t_start (+/- 120 mins)
             near_logged = False
             for d in sorted_doses:
                 d_time = d['timestamp']
                 if d_time.tzinfo is None:
                     d_time = pytz.utc.localize(d_time)
-                if abs((d_time - t_start).total_seconds()) <= 2700:  # 45 mins
+                # Insulin takes 60-90 mins to peak. A drop starting up to 120 mins
+                # after a dose is very likely caused by that dose.
+                if abs((d_time - t_start).total_seconds()) <= 7200:  # 120 mins
                     near_logged = True
                     break
 
             confidence_divisor = 1.0
             if near_logged:
                 # Instead of completely skipping, apply a divisor to the confidence score.
-                # This resolves imputed doses near recorded doses by keeping them only if 
-                # their raw confidence is extremely high (e.g. massive unexplained drop).
-                confidence_divisor = 2.0
+                # Since the drop is highly likely caused by the delayed peak of the recorded dose,
+                # we use a strong divisor.
+                confidence_divisor = 2.5
 
             # Compute Confidence Score Components:
             # 1. C_magnitude: proportional to unexplained drop magnitude (20 -> 0.0, 50+ -> 1.0)
