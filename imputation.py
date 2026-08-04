@@ -120,6 +120,31 @@ def detect_and_impute_missing_doses(
         if g_start < 120.0:
             continue
 
+        # Carb Rebound Filter: Check if this peak was preceded by a rapid rise (e.g., soda correction).
+        # Look back up to 45 minutes before t_start to see if glucose rose by more than 35 mg/dL.
+        is_rebound = False
+        for k in range(i - 1, -1, -1):
+            r_prev = sorted_readings[k]
+            t_prev = r_prev['timestamp']
+            if t_prev.tzinfo is None:
+                t_prev = pytz.utc.localize(t_prev)
+            
+            # Stop looking back if we go beyond 45 minutes
+            if (t_start - t_prev).total_seconds() > 2700:
+                break
+                
+            try:
+                g_prev = float(r_prev['value'])
+                if g_start - g_prev > 35.0:
+                    is_rebound = True
+                    break
+            except (ValueError, TypeError):
+                continue
+                
+        if is_rebound:
+            # This is a sharp peak caused by carbs, and the subsequent drop is just active insulin taking over again.
+            continue
+
         # Look for nadir in window [t_start + 45m, t_start + 240m]
         for j in range(i + 1, n):
             r_curr = sorted_readings[j]
