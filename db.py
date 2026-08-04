@@ -1,5 +1,6 @@
 import os
 import psycopg2
+import psycopg2.extras
 from psycopg2.extras import execute_values
 from dotenv import load_dotenv
 
@@ -84,3 +85,70 @@ def insert_readings(readings):
         conn.close()
         
     return inserted_count
+
+def get_latest_reading():
+    """Fetches the single most recent glucose reading."""
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, timestamp, value, type, device, serial_number 
+                FROM glucose_readings 
+                ORDER BY timestamp DESC 
+                LIMIT 1
+            """)
+            return cur.fetchone()
+    except Exception as e:
+        print(f"Error fetching latest reading: {e}")
+        return None
+    finally:
+        conn.close()
+
+def get_history(limit_hours=24):
+    """Fetches historical readings within the last N hours, ordered chronologically."""
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, timestamp, value, type, device, serial_number 
+                FROM glucose_readings 
+                WHERE timestamp >= NOW() - INTERVAL %s
+                ORDER BY timestamp ASC
+            """, (f"{limit_hours} hours",))
+            return cur.fetchall()
+    except Exception as e:
+        print(f"Error fetching history: {e}")
+        return []
+    finally:
+        conn.close()
+
+def get_statistics(hours=24):
+    """Computes key metrics like Average Glucose, GMI (Est. A1c), and Time-in-Range percentages."""
+    readings = get_history(hours)
+    if not readings:
+        return None
+    
+    values = [r['value'] for r in readings]
+    avg_glucose = sum(values) / len(values)
+    
+    # GMI (%) = 3.31 + 0.02392 * [mean glucose in mg/dL]
+    gmi = 3.31 + (0.02392 * avg_glucose)
+    
+    low_count = sum(1 for v in values if v < 70)
+    in_range_count = sum(1 for v in values if 70 <= v <= 180)
+    high_count = sum(1 for v in values if v > 180)
+    very_high_count = sum(1 for v in values if v > 250)
+    
+    total = len(values)
+    
+    return {
+        "total_readings": total,
+        "average_glucose": round(avg_glucose, 1),
+        "gmi": round(gmi, 2),
+        "time_in_range": {
+            "low_percent": round((low_count / total) * 100, 1),
+            "target_percent": round((in_range_count / total) * 100, 1),
+            "high_percent": round((high_count / total) * 100, 1),
+            "very_high_percent": round((very_high_count / total) * 100, 1),
+        }
+    }

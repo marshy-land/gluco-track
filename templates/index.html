@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gluco Track — Live Glucose Dashboard</title>
+    <!-- Google Fonts: Inter & Outfit -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <!-- Chart.js and Date Adapter -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    
+    <style>
+        :root {
+            --bg-gradient: linear-gradient(135deg, #0b0c16 0%, #15162b 100%);
+            --panel-bg: rgba(22, 23, 47, 0.6);
+            --panel-border: rgba(255, 255, 255, 0.08);
+            --text-primary: #f3f4f6;
+            --text-secondary: #9ca3af;
+            
+            --color-target: #10b981; /* Emerald */
+            --color-low: #ef4444;    /* Red */
+            --color-high: #f59e0b;   /* Amber */
+            --color-accent: #3b82f6; /* Blue */
+            
+            --glow-target: 0 0 20px rgba(16, 185, 129, 0.4);
+            --glow-low: 0 0 20px rgba(239, 68, 68, 0.4);
+            --glow-high: 0 0 20px rgba(245, 158, 11, 0.4);
+            --glow-accent: 0 0 20px rgba(59, 130, 246, 0.4);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-gradient);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow-x: hidden;
+            padding: 2rem 1rem;
+        }
+
+        /* Glassmorphism Panel Base */
+        .glass-panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            backdrop-filter: blur(16px);
+            border-radius: 20px;
+            padding: 1.5rem;
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .glass-panel:hover {
+            border-color: rgba(255, 255, 255, 0.15);
+            box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.5);
+        }
+
+        /* Layout Grid */
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+        }
+
+        h1 {
+            font-family: 'Outfit', sans-serif;
+            font-weight: 800;
+            font-size: 2.2rem;
+            letter-spacing: -0.05em;
+            background: linear-gradient(to right, #3b82f6, #10b981);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.5rem 1rem;
+            border-radius: 9999px;
+            border: 1px solid var(--panel-border);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background-color: var(--color-target);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--color-target);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.5; }
+            50% { transform: scale(1.1); opacity: 1; box-shadow: 0 0 12px var(--color-target); }
+            100% { transform: scale(0.95); opacity: 0.5; }
+        }
+
+        /* Top Row Cards */
+        .top-row {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1.5rem;
+        }
+
+        @media (min-width: 768px) {
+            .top-row {
+                grid-template-columns: 1.2fr 2fr;
+            }
+        }
+
+        /* Live Glucose Card */
+        .live-card {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+            min-height: 250px;
+        }
+
+        .live-label {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .live-value {
+            font-family: 'Outfit', sans-serif;
+            font-size: 5rem;
+            font-weight: 800;
+            line-height: 1;
+            margin-bottom: 0.5rem;
+            transition: color 0.5s ease;
+        }
+
+        .live-trend {
+            font-size: 1.8rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+
+        .live-time {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 1rem;
+        }
+
+        /* Metrics grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+        }
+
+        @media (min-width: 1024px) {
+            .metrics-grid {
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+
+        .metric-card {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .metric-title {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-secondary);
+        }
+
+        .metric-val {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.8rem;
+            font-weight: 700;
+        }
+
+        /* Chart card */
+        .chart-card {
+            min-height: 380px;
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .chart-title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        .time-filters {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .filter-btn {
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid var(--panel-border);
+            color: var(--text-secondary);
+            padding: 0.35rem 0.85rem;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .filter-btn:hover, .filter-btn.active {
+            background: var(--color-accent);
+            color: white;
+            border-color: var(--color-accent);
+            box-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
+        }
+
+        /* TIR progress bar */
+        .tir-bar-container {
+            width: 100%;
+            height: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 9999px;
+            display: flex;
+            overflow: hidden;
+            margin: 0.5rem 0;
+        }
+
+        .tir-segment {
+            height: 100%;
+            transition: width 0.5s ease;
+        }
+
+        .tir-low { background-color: var(--color-low); }
+        .tir-target { background-color: var(--color-target); }
+        .tir-high { background-color: var(--color-high); }
+
+        .tir-legend {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 0.5rem;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+
+        .legend-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        /* Upload area */
+        .upload-card {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .dropzone {
+            border: 2px dashed rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+            padding: 2rem;
+            text-align: center;
+            cursor: pointer;
+            background: rgba(255, 255, 255, 0.02);
+            transition: all 0.2s ease;
+        }
+
+        .dropzone:hover, .dropzone.dragover {
+            border-color: var(--color-accent);
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        .dropzone svg {
+            width: 40px;
+            height: 40px;
+            color: var(--text-secondary);
+            margin-bottom: 0.75rem;
+        }
+
+        .upload-status {
+            font-size: 0.85rem;
+            margin-top: 0.5rem;
+        }
+
+        /* Targets indicator values */
+        .state-normal { color: var(--color-target); text-shadow: var(--glow-target); }
+        .state-low { color: var(--color-low); text-shadow: var(--glow-low); }
+        .state-high { color: var(--color-high); text-shadow: var(--glow-high); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>GLUCO TRACK</h1>
+            <div class="status-indicator">
+                <span class="status-dot"></span>
+                <span>Live Sync Connected</span>
+            </div>
+        </header>
+
+        <div class="top-row">
+            <!-- Current Status -->
+            <div class="glass-panel live-card" id="live-panel">
+                <div class="live-label">Current Glucose</div>
+                <div class="live-value" id="current-val">--</div>
+                <div class="live-trend" id="trend-arrow">
+                    <span id="arrow-char"></span>
+                    <span id="trend-desc" style="font-size: 1rem; font-weight: 500;"></span>
+                </div>
+                <div class="live-time" id="last-updated">Updating...</div>
+            </div>
+
+            <!-- Core Statistics -->
+            <div class="glass-panel" style="display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                    <h3 class="chart-title" style="margin-bottom: 1rem;">Summary Metrics</h3>
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <span class="metric-title">Average Glucose</span>
+                            <span class="metric-val" id="avg-val">-- <span style="font-size: 0.9rem; font-weight: 400; color: var(--text-secondary);">mg/dL</span></span>
+                        </div>
+                        <div class="metric-card">
+                            <span class="metric-title">Est. A1C (GMI)</span>
+                            <span class="metric-val" id="gmi-val">-- <span style="font-size: 0.9rem; font-weight: 400; color: var(--text-secondary);">%</span></span>
+                        </div>
+                        <div class="metric-card" style="grid-column: span 2;">
+                            <span class="metric-title">Time in Target (70-180)</span>
+                            <span class="metric-val" id="target-val">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 1.5rem;">
+                    <span class="metric-title">Time in Ranges</span>
+                    <div class="tir-bar-container">
+                        <div class="tir-segment tir-low" id="bar-low" style="width: 0%"></div>
+                        <div class="tir-segment tir-target" id="bar-target" style="width: 0%"></div>
+                        <div class="tir-segment tir-high" id="bar-high" style="width: 0%"></div>
+                    </div>
+                    <div class="tir-legend">
+                        <div class="legend-item"><span class="legend-dot" style="background-color: var(--color-low)"></span> Low (<70) <span id="lbl-low">--</span></div>
+                        <div class="legend-item"><span class="legend-dot" style="background-color: var(--color-target)"></span> Target <span id="lbl-target">--</span></div>
+                        <div class="legend-item"><span class="legend-dot" style="background-color: var(--color-high)"></span> High (>180) <span id="lbl-high">--</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chart Grid -->
+        <div class="glass-panel chart-card">
+            <div class="chart-header">
+                <h3 class="chart-title">Glucose History</h3>
+                <div class="time-filters">
+                    <button class="filter-btn active" onclick="loadHistory(24, this)">24H</button>
+                    <button class="filter-btn" onclick="loadHistory(72, this)">3D</button>
+                    <button class="filter-btn" onclick="loadHistory(168, this)">7D</button>
+                    <button class="filter-btn" onclick="loadHistory(720, this)">30D</button>
+                </div>
+            </div>
+            <div style="position: relative; height: 300px; width: 100%;">
+                <canvas id="glucoseChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Upload/Import Area -->
+        <div class="glass-panel upload-card">
+            <h3 class="chart-title">Backfill Historical Data</h3>
+            <p style="font-size: 0.85rem; color: var(--text-secondary);">
+                Download your full glucose history CSV from <a href="https://www.libreview.com" target="_blank" style="color: var(--color-accent); text-decoration: none;">LibreView.com</a>, and upload it here to append all your historical readings.
+            </p>
+            <div class="dropzone" id="dropzone" onclick="document.getElementById('csv-file').click()">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                </svg>
+                <p style="font-weight: 500; font-size: 0.95rem;">Drag and drop your LibreView CSV here</p>
+                <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.25rem;">or click to browse files</p>
+                <input type="file" id="csv-file" accept=".csv" style="display: none;" onchange="handleFileSelect(event)">
+                <div class="upload-status" id="upload-status"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let chart = null;
+
+        // Trend arrows lookup
+        const TREND_MAP = {
+            1: { char: '↓', desc: 'Falling quickly' },
+            2: { char: '↘', desc: 'Falling' },
+            3: { char: '→', desc: 'Stable' },
+            4: { char: '↗', desc: 'Rising' },
+            5: { char: '↑', desc: 'Rising quickly' }
+        };
+
+        // Initialize elements on load
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchLiveData();
+            loadHistory(24);
+            // Poll for live data updates every 30 seconds
+            setInterval(fetchLiveData, 30000);
+            
+            // Drag and drop events
+            const dropzone = document.getElementById('dropzone');
+            
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropzone.addEventListener(eventName, e => {
+                    e.preventDefault();
+                    dropzone.classList.add('dragover');
+                }, false);
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropzone.addEventListener(eventName, e => {
+                    e.preventDefault();
+                    dropzone.classList.remove('dragover');
+                }, false);
+            });
+
+            dropzone.addEventListener('drop', e => {
+                const dt = e.dataTransfer;
+                const files = dt.files;
+                if (files.length) {
+                    uploadCSV(files[0]);
+                }
+            });
+        });
+
+        // Fetch current live readings
+        async function fetchLiveData() {
+            try {
+                const res = await fetch('/api/glucose/latest');
+                if (!res.ok) throw new Error('No data');
+                
+                const data = await res.json();
+                
+                const valEl = document.getElementById('current-val');
+                const arrowEl = document.getElementById('arrow-char');
+                const descEl = document.getElementById('trend-desc');
+                const timeEl = document.getElementById('last-updated');
+                const panelEl = document.getElementById('live-panel');
+                
+                const value = data.value;
+                valEl.innerText = value;
+                
+                // Color status card based on reading
+                panelEl.className = 'glass-panel live-card'; // Reset
+                if (value < 70) {
+                    panelEl.classList.add('state-low');
+                    valEl.className = 'live-value state-low';
+                } else if (value > 180) {
+                    panelEl.classList.add('state-high');
+                    valEl.className = 'live-value state-high';
+                } else {
+                    panelEl.classList.add('state-normal');
+                    valEl.className = 'live-value state-normal';
+                }
+
+                // Trend arrow mapping
+                const trend = data.record_type; // the TrendArrow numeric indicator
+                if (TREND_MAP[trend]) {
+                    arrowEl.innerText = TREND_MAP[trend].char;
+                    descEl.innerText = TREND_MAP[trend].desc;
+                } else {
+                    arrowEl.innerText = '→';
+                    descEl.innerText = 'Stable';
+                }
+
+                // Last updated timestamp format
+                const localTime = new Date(data.timestamp);
+                timeEl.innerText = `Last updated: ${localTime.toLocaleTimeString()}`;
+            } catch (err) {
+                console.warn("Could not fetch latest glucose data:", err);
+            }
+        }
+
+        // Fetch statistics
+        async function fetchStats(hours) {
+            try {
+                const res = await fetch(`/api/glucose/stats?hours=${hours}`);
+                if (!res.ok) throw new Error();
+                const data = await res.json();
+
+                document.getElementById('avg-val').innerHTML = `${data.average_glucose} <span style="font-size: 0.9rem; font-weight: 400; color: var(--text-secondary);">mg/dL</span>`;
+                document.getElementById('gmi-val').innerHTML = `${data.gmi} <span style="font-size: 0.9rem; font-weight: 400; color: var(--text-secondary);">%</span>`;
+                document.getElementById('target-val').innerText = `${data.time_in_range.target_percent}%`;
+
+                // Update TIR segment widths
+                document.getElementById('bar-low').style.width = `${data.time_in_range.low_percent}%`;
+                document.getElementById('bar-target').style.width = `${data.time_in_range.target_percent}%`;
+                document.getElementById('bar-high').style.width = `${data.time_in_range.high_percent}%`;
+
+                // Update legend values
+                document.getElementById('lbl-low').innerText = `(${data.time_in_range.low_percent}%)`;
+                document.getElementById('lbl-target').innerText = `(${data.time_in_range.target_percent}%)`;
+                document.getElementById('lbl-high').innerText = `(${data.time_in_range.high_percent}%)`;
+            } catch (err) {
+                console.warn("Could not fetch statistics:", err);
+            }
+        }
+
+        // Load historical readings and render chart
+        async function loadHistory(hours, btn = null) {
+            if (btn) {
+                document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+            }
+
+            fetchStats(hours);
+
+            try {
+                const res = await fetch(`/api/glucose/history?hours=${hours}`);
+                const data = await res.json();
+
+                const chartData = data.map(r => ({
+                    x: new Date(r.timestamp),
+                    y: r.value
+                }));
+
+                renderChart(chartData);
+            } catch (err) {
+                console.error("Error loading history:", err);
+            }
+        }
+
+        // Render Chart.js
+        function renderChart(dataPoints) {
+            const ctx = document.getElementById('glucoseChart').getContext('2d');
+            
+            if (chart) {
+                chart.destroy();
+            }
+
+            // Neon line gradient
+            const lineGradient = ctx.createLinearGradient(0, 0, 0, 300);
+            lineGradient.addColorStop(0, 'rgba(59, 130, 246, 1)');
+            lineGradient.addColorStop(1, 'rgba(16, 185, 129, 0.8)');
+
+            // Area fill gradient
+            const fillGradient = ctx.createLinearGradient(0, 0, 0, 300);
+            fillGradient.addColorStop(0, 'rgba(59, 130, 246, 0.15)');
+            fillGradient.addColorStop(1, 'rgba(21, 22, 43, 0.01)');
+
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: 'Glucose',
+                        data: dataPoints,
+                        borderColor: lineGradient,
+                        backgroundColor: fillGradient,
+                        borderWidth: 3,
+                        pointRadius: dataPoints.length > 300 ? 0 : 2,
+                        pointHoverRadius: 6,
+                        pointBackgroundColor: '#3b82f6',
+                        fill: true,
+                        tension: 0.3
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: 'rgba(17, 18, 36, 0.95)',
+                            borderColor: 'rgba(255,255,255,0.08)',
+                            borderWidth: 1,
+                            titleColor: '#9ca3af',
+                            bodyColor: '#f3f4f6',
+                            callbacks: {
+                                label: (context) => ` Glucose: ${context.parsed.y} mg/dL`
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                tooltipFormat: 'MMM d, h:mm a',
+                                displayFormats: {
+                                    hour: 'h:mm a',
+                                    day: 'MMM d'
+                                }
+                            },
+                            grid: { color: 'rgba(255, 255, 255, 0.03)' },
+                            ticks: { color: '#9ca3af', font: { family: 'Inter' } }
+                        },
+                        y: {
+                            min: 40,
+                            max: 350,
+                            grid: { color: 'rgba(255, 255, 255, 0.03)' },
+                            ticks: { color: '#9ca3af', font: { family: 'Inter' } },
+                            // Add auxiliary lines for targets (70 - 180)
+                            annotation: {
+                                annotations: {
+                                    box1: {
+                                        type: 'box',
+                                        yMin: 70,
+                                        yMax: 180,
+                                        backgroundColor: 'rgba(16, 185, 129, 0.02)',
+                                        borderWidth: 0
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Upload and process CSV backfill
+        function handleFileSelect(e) {
+            const files = e.target.files;
+            if (files.length) {
+                uploadCSV(files[0]);
+            }
+        }
+
+        async function uploadCSV(file) {
+            const statusEl = document.getElementById('upload-status');
+            statusEl.innerText = `Uploading and parsing ${file.name}...`;
+            statusEl.style.color = 'var(--text-secondary)';
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const res = await fetch('/api/glucose/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await res.json();
+                
+                if (res.ok) {
+                    statusEl.innerText = `Success! Parsed ${result.parsed} entries. Inserted ${result.inserted} new historical records.`;
+                    statusEl.style.color = 'var(--color-target)';
+                    
+                    // Reload charts
+                    loadHistory(24);
+                    fetchLiveData();
+                } else {
+                    statusEl.innerText = `Error: ${result.detail || 'Failed to process file'}`;
+                    statusEl.style.color = 'var(--color-low)';
+                }
+            } catch (err) {
+                statusEl.innerText = `Failed to upload: ${err.message}`;
+                statusEl.style.color = 'var(--color-low)';
+            }
+        }
+    </script>
+</body>
+</html>

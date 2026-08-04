@@ -1,15 +1,16 @@
 import os
 import time
 import sys
+import threading
+import uvicorn
 from sync import run_sync
 
 # How often to check for updates (in seconds)
-# Default is 5 minutes (300 seconds) since Abbott limits rate of updates and sensor uploads.
 CHECK_INTERVAL_SECONDS = int(os.getenv("SYNC_INTERVAL_SECONDS", 300))
 
-def main():
+def sync_worker_loop():
     print("=============================================")
-    print("Gluco Track Live Sync Daemon Starting...")
+    print("Gluco Track Live Sync Daemon Started (Background)...")
     print(f"Polling Interval: {CHECK_INTERVAL_SECONDS} seconds")
     print("=============================================")
 
@@ -21,18 +22,26 @@ def main():
 
     while True:
         try:
-            print(f"Waiting for next sync cycle (sleeping for {CHECK_INTERVAL_SECONDS}s)...")
             time.sleep(CHECK_INTERVAL_SECONDS)
-            print(f"Sync cycle started at {datetime.now(pytz.utc).isoformat()}")
+            print(f"Background Sync cycle started...")
             run_sync()
-        except KeyboardInterrupt:
-            print("Sync daemon stopped by user.")
-            sys.exit(0)
         except Exception as e:
             print(f"Error during sync cycle: {e}. Retrying in next interval...", file=sys.stderr)
 
+def main():
+    # Start the sync polling daemon as a background thread
+    sync_thread = threading.Thread(target=sync_worker_loop, daemon=True)
+    sync_thread.start()
+
+    # Launch FastAPI application using Uvicorn
+    # Get port and host from environment variables (Railway default is PORT)
+    port = int(os.getenv("PORT", 8080))
+    host = os.getenv("HOST", "0.0.0.0")
+
+    print(f"Starting Web API and Dashboard on http://{host}:{port}...")
+    # Import the app here to avoid circular imports during worker startup
+    from app import app
+    uvicorn.run(app, host=host, port=port)
+
 if __name__ == "__main__":
-    # Import datetime/pytz here to avoid polluting namespace or startup delays
-    from datetime import datetime
-    import pytz
     main()
