@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS insulin_doses (
     user_change DOUBLE PRECISION,   -- User Change Insulin (units)
     device VARCHAR(100),
     serial_number VARCHAR(100),
+    is_imputed BOOLEAN DEFAULT FALSE,
+    confidence_score DOUBLE PRECISION,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 

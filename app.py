@@ -44,11 +44,38 @@ def api_history(hours: int = Query(default=24, ge=1, le=4320)):
     return readings
 
 @app.get("/api/insulin/history")
-def api_insulin_history(hours: int = Query(default=24, ge=1, le=4320)):
-    """Retrieves insulin logs within the last N hours."""
-    doses = get_insulin_history(hours)
+def api_insulin_history(
+    hours: int = Query(default=24, ge=1, le=4320),
+    include_imputed: bool = Query(default=False)
+):
+    """Retrieves insulin logs within the last N hours, optionally including imputed missing doses."""
+    doses = get_insulin_history(hours, include_imputed=include_imputed)
     for d in doses:
-        d['timestamp'] = d['timestamp'].isoformat()
+        if isinstance(d.get('timestamp'), datetime):
+            d['timestamp'] = d['timestamp'].isoformat()
+        if 'is_imputed' not in d or d['is_imputed'] is None:
+            d['is_imputed'] = False
+
+    if include_imputed:
+        try:
+            from imputation import detect_and_impute_missing_doses
+            glucose_readings = get_history(hours + 4)
+            raw_doses = get_insulin_history(hours + 4, include_imputed=False)
+            
+            imputed = detect_and_impute_missing_doses(glucose_readings, raw_doses)
+            
+            existing_ts_set = {d['timestamp'] for d in doses}
+            for imp in imputed:
+                ts_iso = imp['timestamp'].isoformat() if isinstance(imp['timestamp'], datetime) else imp['timestamp']
+                if ts_iso not in existing_ts_set:
+                    imp_copy = dict(imp)
+                    imp_copy['timestamp'] = ts_iso
+                    doses.append(imp_copy)
+            
+            doses.sort(key=lambda x: x['timestamp'])
+        except Exception as e:
+            print(f"Error executing missing dose imputation model: {e}")
+
     return doses
 
 @app.get("/api/predictions")
@@ -241,3 +268,18 @@ async def api_upload(file: UploadFile = File(...)):
         # Clean up temp file
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+@app.get("/api/nutritional-impact")
+def api_nutritional_impact(hours: int = Query(default=720, ge=1, le=4320)):
+    """Retrieves time-of-day nutritional impact modifiers (M_tod) and dynamic clinical recommendations."""
+    try:
+        from ml_heuristics import calculate_nutritional_impact_modifiers
+        return calculate_nutritional_impact_modifiers(hours_back=hours)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/nutritional-impact/summary")
+def api_nutritional_impact_summary(hours: int = Query(default=720, ge=1, le=4320)):
+    """Alias route for /api/nutritional-impact."""
+    return api_nutritional_impact(hours=hours)
+

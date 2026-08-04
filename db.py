@@ -1,4 +1,5 @@
 import os
+import threading
 import psycopg2
 import psycopg2.extras
 from psycopg2.extras import execute_values
@@ -8,6 +9,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
+
+_init_db_lock = threading.Lock()
 
 def get_connection():
     """Establishes and returns a connection to the PostgreSQL database."""
@@ -25,28 +28,38 @@ def init_db():
     with open(schema_path, "r") as f:
         schema_sql = f.read()
 
-    conn = get_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(schema_sql)
-            
-            # Clean up duplicate insulin records (if any)
-            cur.execute("""
-                DELETE FROM insulin_doses 
-                WHERE id NOT IN (
-                    SELECT MIN(id) 
-                    FROM insulin_doses 
-                    GROUP BY timestamp
-                )
-            """)
-        conn.commit()
-        print("Database initialized and duplicate insulin logs cleaned up.")
-    except Exception as e:
-        conn.rollback()
-        print(f"Error initializing database: {e}")
-        raise e
-    finally:
-        conn.close()
+    with _init_db_lock:
+        conn = get_connection()
+        try:
+            with conn.cursor() as cur:
+                # Acquire advisory lock to prevent concurrent DDL deadlocks across threads/processes
+                cur.execute("SELECT pg_advisory_lock(987654321);")
+                try:
+                    cur.execute(schema_sql)
+                    
+                    # Safe schema migrations for missing dose imputation fields
+                    cur.execute("ALTER TABLE insulin_doses ADD COLUMN IF NOT EXISTS is_imputed BOOLEAN DEFAULT FALSE;")
+                    cur.execute("ALTER TABLE insulin_doses ADD COLUMN IF NOT EXISTS confidence_score DOUBLE PRECISION;")
+                    
+                    # Clean up duplicate insulin records (if any)
+                    cur.execute("""
+                        DELETE FROM insulin_doses 
+                        WHERE id NOT IN (
+                            SELECT MIN(id) 
+                            FROM insulin_doses 
+                            GROUP BY timestamp
+                        )
+                    """)
+                finally:
+                    cur.execute("SELECT pg_advisory_unlock(987654321);")
+            conn.commit()
+            print("Database initialized and duplicate insulin logs cleaned up.")
+        except Exception as e:
+            conn.rollback()
+            print(f"Error initializing database: {e}")
+            raise e
+        finally:
+            conn.close()
 
 def insert_readings(readings):
     """
@@ -193,14 +206,16 @@ def insert_insulin_doses(doses):
                     d.get("correction"),
                     d.get("user_change"),
                     d.get("device"),
-                    d.get("serial_number")
+                    d.get("serial_number"),
+                    d.get("is_imputed", False),
+                    d.get("confidence_score")
                 )
                 for d in filtered_doses
             ]
             
             query = """
                 INSERT INTO insulin_doses (
-                    timestamp, rapid_acting, long_acting, meal, correction, user_change, device, serial_number
+                    timestamp, rapid_acting, long_acting, meal, correction, user_change, device, serial_number, is_imputed, confidence_score
                 ) VALUES %s
             """
             execute_values(cur, query, data)
@@ -214,18 +229,43 @@ def insert_insulin_doses(doses):
     finally:
         conn.close()
 
-def get_insulin_history(limit_hours=24):
+def get_insulin_history(limit_hours=24, include_imputed=False):
     """Retrieves insulin logs sorted chronologically."""
     conn = get_connection()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("""
-                SELECT id, timestamp, rapid_acting, long_acting, meal, correction, user_change, device, serial_number 
-                FROM insulin_doses 
-                WHERE timestamp >= NOW() - INTERVAL %s
-                ORDER BY timestamp ASC
-            """, (f"{limit_hours} hours",))
-            return cur.fetchall()
+            try:
+                if include_imputed:
+                    query = """
+                        SELECT id, timestamp, rapid_acting, long_acting, meal, correction, user_change, device, serial_number, is_imputed, confidence_score 
+                        FROM insulin_doses 
+                        WHERE timestamp >= NOW() - INTERVAL %s
+                        ORDER BY timestamp ASC
+                    """
+                else:
+                    query = """
+                        SELECT id, timestamp, rapid_acting, long_acting, meal, correction, user_change, device, serial_number, is_imputed, confidence_score 
+                        FROM insulin_doses 
+                        WHERE timestamp >= NOW() - INTERVAL %s AND (is_imputed IS NOT TRUE)
+                        ORDER BY timestamp ASC
+                    """
+                cur.execute(query, (f"{limit_hours} hours",))
+                return cur.fetchall()
+            except Exception as col_err:
+                conn.rollback()
+                # Fallback for database tables prior to migration
+                query = """
+                    SELECT id, timestamp, rapid_acting, long_acting, meal, correction, user_change, device, serial_number 
+                    FROM insulin_doses 
+                    WHERE timestamp >= NOW() - INTERVAL %s
+                    ORDER BY timestamp ASC
+                """
+                cur.execute(query, (f"{limit_hours} hours",))
+                rows = cur.fetchall()
+                for r in rows:
+                    r["is_imputed"] = False
+                    r["confidence_score"] = None
+                return rows
     except Exception as e:
         print(f"Error fetching insulin history: {e}")
         return []
