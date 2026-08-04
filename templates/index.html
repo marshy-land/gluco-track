@@ -137,6 +137,12 @@
             }
         }
 
+        @media (min-width: 768px) {
+            .actions-grid {
+                grid-template-columns: 1fr 1fr !important;
+            }
+        }
+
         /* Live Glucose Card */
         .live-card {
             display: flex;
@@ -475,20 +481,69 @@
             </div>
         </div>
 
-        <!-- Upload/Import Area -->
-        <div class="glass-panel upload-card">
-            <h3 class="chart-title">Backfill Historical Data</h3>
-            <p style="font-size: 0.85rem; color: var(--text-secondary);">
-                Download your full glucose history CSV from <a href="https://www.libreview.com" target="_blank" style="color: var(--color-accent); text-decoration: none;">LibreView.com</a>, and upload it here to append all your historical readings.
-            </p>
-            <div class="dropzone" id="dropzone" onclick="document.getElementById('csv-file').click()">
-                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
-                </svg>
-                <p style="font-weight: 500; font-size: 0.95rem;">Drag and drop your LibreView CSV here</p>
-                <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.25rem;">or click to browse files</p>
-                <input type="file" id="csv-file" accept=".csv" style="display: none;" onchange="handleFileSelect(event)">
-                <div class="upload-status" id="upload-status"></div>
+        <!-- Actions Grid (Upload and Log) -->
+        <div style="display: grid; grid-template-columns: 1fr; gap: 1.5rem;" class="actions-grid">
+            <!-- Upload/Import Area -->
+            <div class="glass-panel" style="display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                    <h3 class="chart-title">Backfill Historical Data</h3>
+                    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                        Download your full glucose history CSV from <a href="https://www.libreview.com" target="_blank" style="color: var(--color-accent); text-decoration: none;">LibreView.com</a>, and upload it here to append all your historical readings.
+                    </p>
+                </div>
+                <div class="dropzone" id="dropzone" onclick="document.getElementById('csv-file').click()" style="margin-top: auto; padding: 1.5rem; border: 2px dashed rgba(255, 255, 255, 0.1); border-radius: 12px; text-align: center; cursor: pointer; transition: border-color 0.2s;">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="height: 40px; width: 40px; margin: 0 auto 0.5rem auto; display: block; opacity: 0.7;">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                    </svg>
+                    <p style="font-weight: 500; font-size: 0.9rem; margin: 0;">Drag and drop your LibreView CSV here</p>
+                    <p style="font-size: 0.75rem; color: var(--text-secondary); margin: 0.25rem 0 0 0;">or click to browse files</p>
+                    <input type="file" id="csv-file" accept=".csv" style="display: none;" onchange="handleFileSelect(event)">
+                    <div class="upload-status" id="upload-status" style="font-size: 0.8rem; margin-top: 0.5rem; color: var(--text-secondary);"></div>
+                </div>
+            </div>
+
+            <!-- Quick Log Insulin Dose -->
+            <div class="glass-panel" style="display: flex; flex-direction: column;">
+                <h3 class="chart-title" style="margin-bottom: 0.5rem;">Log Insulin Dose</h3>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                    Manually log an insulin dose taken. This updates IOB and bolus suggestions immediately.
+                </p>
+                
+                <form id="log-insulin-form" onsubmit="handleLogInsulin(event)" style="display: flex; flex-direction: column; gap: 0.85rem;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                        <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                            <label style="font-size: 0.75rem; color: var(--text-secondary);">Rapid-Acting (U)</label>
+                            <input type="number" id="log-rapid" step="0.1" min="0" placeholder="0.0" style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); color: #fff; padding: 0.4rem; border-radius: 6px; font-size: 0.85rem;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                            <label style="font-size: 0.75rem; color: var(--text-secondary);">Long-Acting (U)</label>
+                            <input type="number" id="log-long" step="0.1" min="0" placeholder="0.0" style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); color: #fff; padding: 0.4rem; border-radius: 6px; font-size: 0.85rem;">
+                        </div>
+                    </div>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem;">
+                        <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                            <label style="font-size: 0.7rem; color: var(--text-secondary);">Meal (U)</label>
+                            <input type="number" id="log-meal" step="0.1" min="0" placeholder="0.0" style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); color: #fff; padding: 0.4rem; border-radius: 6px; font-size: 0.8rem;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                            <label style="font-size: 0.7rem; color: var(--text-secondary);">Correction (U)</label>
+                            <input type="number" id="log-correction" step="0.1" min="0" placeholder="0.0" style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); color: #fff; padding: 0.4rem; border-radius: 6px; font-size: 0.8rem;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                            <label style="font-size: 0.7rem; color: var(--text-secondary);">User Change (U)</label>
+                            <input type="number" id="log-change" step="0.1" min="0" placeholder="0.0" style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); color: #fff; padding: 0.4rem; border-radius: 6px; font-size: 0.8rem;">
+                        </div>
+                    </div>
+                    
+                    <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                        <label style="font-size: 0.75rem; color: var(--text-secondary);">Time of Dose</label>
+                        <input type="datetime-local" id="log-time" style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); color: #fff; padding: 0.4rem; border-radius: 6px; font-size: 0.85rem;">
+                    </div>
+                    
+                    <button type="submit" style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: white; border: none; padding: 0.6rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.85rem; transition: opacity 0.2s;" onmouseover="this.style.opacity=0.9" onmouseout="this.style.opacity=1">Log Dose</button>
+                    <div id="log-status" style="font-size: 0.8rem; text-align: center; margin-top: 0.25rem;"></div>
+                </form>
             </div>
         </div>
     </div>
@@ -512,6 +567,15 @@
             loadHistory(24);
             // Poll for live data updates every 30 seconds
             setInterval(fetchLiveData, 30000);
+            
+            // Set default local time for manual log
+            const timeInput = document.getElementById('log-time');
+            if (timeInput) {
+                const now = new Date();
+                const tzoffset = now.getTimezoneOffset() * 60000;
+                const localISOTime = (new Date(now - tzoffset)).toISOString().slice(0, 16);
+                timeInput.value = localISOTime;
+            }
             
             // Prevent browser from opening dropped files globally
             window.addEventListener('dragover', e => e.preventDefault(), false);
@@ -968,6 +1032,74 @@
             } catch (err) {
                 console.warn("Could not fetch predictions:", err);
                 return [];
+            }
+        }
+
+        // Handle manual insulin logging form submission
+        async function handleLogInsulin(e) {
+            e.preventDefault();
+            const statusEl = document.getElementById('log-status');
+            statusEl.innerText = "Logging dose...";
+            statusEl.style.color = "var(--text-secondary)";
+
+            const rapid = parseFloat(document.getElementById('log-rapid').value) || null;
+            const long = parseFloat(document.getElementById('log-long').value) || null;
+            const meal = parseFloat(document.getElementById('log-meal').value) || null;
+            const correction = parseFloat(document.getElementById('log-correction').value) || null;
+            const change = parseFloat(document.getElementById('log-change').value) || null;
+            const timeVal = document.getElementById('log-time').value;
+
+            if (rapid === null && long === null && meal === null && correction === null && change === null) {
+                statusEl.innerText = "Error: Enter at least one dose value.";
+                statusEl.style.color = "var(--color-low)";
+                return;
+            }
+
+            let timestamp = null;
+            if (timeVal) {
+                timestamp = new Date(timeVal).toISOString();
+            }
+
+            const payload = {
+                timestamp: timestamp,
+                rapid_acting: rapid,
+                long_acting: long,
+                meal: meal,
+                correction: correction,
+                user_change: change
+            };
+
+            try {
+                const res = await fetch('/api/insulin/log', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                const result = await res.json();
+                if (res.ok) {
+                    statusEl.innerText = result.message || "Dose logged successfully!";
+                    statusEl.style.color = "var(--color-target)";
+                    
+                    // Reset fields
+                    document.getElementById('log-rapid').value = "";
+                    document.getElementById('log-long').value = "";
+                    document.getElementById('log-meal').value = "";
+                    document.getElementById('log-correction').value = "";
+                    document.getElementById('log-change').value = "";
+                    
+                    // Refresh data on screen
+                    const activeFilter = document.querySelector('.filter-btn.active');
+                    const hours = activeFilter ? parseInt(activeFilter.getAttribute('onclick').match(/\d+/)[0]) : 24;
+                    loadHistory(hours);
+                    fetchLiveData();
+                } else {
+                    statusEl.innerText = `Error: ${result.detail || 'Failed to log dose'}`;
+                    statusEl.style.color = "var(--color-low)";
+                }
+            } catch (err) {
+                statusEl.innerText = `Failed to connect: ${err.message}`;
+                statusEl.style.color = "var(--color-low)";
             }
         }
     </script>

@@ -1,6 +1,9 @@
 import os
 import shutil
 import tempfile
+from datetime import datetime, timezone
+from typing import Optional
+from pydantic import BaseModel
 from fastapi import FastAPI, File, UploadFile, Query, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -83,6 +86,41 @@ def api_predictions(
             "isf": isf
         }
     }
+
+class InsulinDoseLog(BaseModel):
+    timestamp: Optional[datetime] = None
+    rapid_acting: Optional[float] = None
+    long_acting: Optional[float] = None
+    meal: Optional[float] = None
+    correction: Optional[float] = None
+    user_change: Optional[float] = None
+
+@app.post("/api/insulin/log")
+def api_log_insulin(dose: InsulinDoseLog):
+    """Logs a single insulin dose entry directly into the database."""
+    ts = dose.timestamp or datetime.now(timezone.utc)
+    
+    if all(v is None for v in [dose.rapid_acting, dose.long_acting, dose.meal, dose.correction, dose.user_change]):
+        raise HTTPException(status_code=400, detail="At least one insulin type value must be provided.")
+        
+    dose_dict = {
+        "timestamp": ts,
+        "rapid_acting": dose.rapid_acting,
+        "long_acting": dose.long_acting,
+        "meal": dose.meal,
+        "correction": dose.correction,
+        "user_change": dose.user_change,
+        "device": "Manual Entry",
+        "serial_number": None
+    }
+    
+    try:
+        inserted = insert_insulin_doses([dose_dict])
+        if inserted == 0:
+            return {"message": "Dose entry already exists (duplicate ignored).", "inserted": 0}
+        return {"message": "Insulin dose logged successfully.", "inserted": 1}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @app.get("/api/glucose/stats")
 def api_stats(hours: int = Query(default=24, ge=1, le=720)):
