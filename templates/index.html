@@ -843,7 +843,6 @@
             }
 
             fetchStats(hours);
-            fetchInsulinHistory(hours);
 
             try {
                 const res = await fetch(`/api/glucose/history?hours=${hours}`);
@@ -885,6 +884,7 @@
                 }
 
                 renderChart(chartData, predictionsData, minTime, maxTime);
+                fetchInsulinHistory(hours, minTime, maxTime);
             } catch (err) {
                 console.error("Error loading history:", err);
             }
@@ -1038,7 +1038,7 @@
         }
 
         // Fetch and display insulin history
-        async function fetchInsulinHistory(hours) {
+        async function fetchInsulinHistory(hours, minTime = null, maxTime = null) {
             try {
                 const res = await fetch(`/api/insulin/history?hours=${hours}&include_imputed=true`);
                 if (!res.ok) throw new Error();
@@ -1067,14 +1067,14 @@
                 }
 
                 // Render Chart.js for insulin
-                renderInsulinChart(data);
+                renderInsulinChart(data, minTime, maxTime);
             } catch (err) {
                 console.warn("Could not fetch insulin history:", err);
             }
         }
 
         // Render Chart.js for insulin
-        function renderInsulinChart(doses) {
+        function renderInsulinChart(doses, minTime = null, maxTime = null) {
             const ctx = document.getElementById('insulinChart').getContext('2d');
             if (insulinChart) {
                 insulinChart.destroy();
@@ -1178,6 +1178,8 @@
                     scales: {
                         x: {
                             type: 'time',
+                            min: minTime,
+                            max: maxTime,
                             time: {
                                 tooltipFormat: 'MMM d, h:mm a',
                                 displayFormats: {
