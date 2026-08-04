@@ -152,3 +152,61 @@ def get_statistics(hours=24):
             "very_high_percent": round((very_high_count / total) * 100, 1),
         }
     }
+
+def insert_insulin_doses(doses):
+    """
+    Inserts a list of insulin doses into the database, ignoring duplicates.
+    """
+    if not doses:
+        return 0
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            data = [
+                (
+                    d["timestamp"],
+                    d.get("rapid_acting"),
+                    d.get("long_acting"),
+                    d.get("meal"),
+                    d.get("correction"),
+                    d.get("user_change"),
+                    d.get("device"),
+                    d.get("serial_number")
+                )
+                for d in doses
+            ]
+            
+            query = """
+                INSERT INTO insulin_doses (
+                    timestamp, rapid_acting, long_acting, meal, correction, user_change, device, serial_number
+                ) VALUES %s
+                ON CONFLICT (timestamp, rapid_acting, long_acting, meal, correction, user_change) DO NOTHING
+            """
+            execute_values(cur, query, data)
+        conn.commit()
+        return len(doses)
+    except Exception as e:
+        conn.rollback()
+        print(f"Error inserting insulin doses: {e}")
+        return 0
+    finally:
+        conn.close()
+
+def get_insulin_history(limit_hours=24):
+    """Retrieves insulin logs sorted chronologically."""
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, timestamp, rapid_acting, long_acting, meal, correction, user_change, device, serial_number 
+                FROM insulin_doses 
+                WHERE timestamp >= NOW() - INTERVAL %s
+                ORDER BY timestamp ASC
+            """, (f"{limit_hours} hours",))
+            return cur.fetchall()
+    except Exception as e:
+        print(f"Error fetching insulin history: {e}")
+        return []
+    finally:
+        conn.close()

@@ -402,6 +402,41 @@
             </div>
         </div>
 
+        <!-- Insulin Doses Log and Chart -->
+        <div style="display: grid; grid-template-columns: 1fr; gap: 1.5rem;">
+            <!-- Insulin Chart -->
+            <div class="glass-panel" style="min-height: 280px;">
+                <h3 class="chart-title" style="margin-bottom: 1.25rem;">Insulin Doses Timeline</h3>
+                <div style="position: relative; height: 210px; width: 100%;">
+                    <canvas id="insulinChart"></canvas>
+                </div>
+            </div>
+            
+            <!-- Insulin Log Table -->
+            <div class="glass-panel" style="max-height: 350px; display: flex; flex-direction: column;">
+                <h3 class="chart-title" style="margin-bottom: 1rem;">Recent Doses Log</h3>
+                <div style="overflow-y: auto; flex-grow: 1; width: 100%;">
+                    <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;" id="insulin-table">
+                        <thead>
+                            <tr style="border-bottom: 1px solid var(--panel-border); color: var(--text-secondary); font-family: 'Outfit', sans-serif;">
+                                <th style="padding: 0.5rem;">Time</th>
+                                <th style="padding: 0.5rem;">Rapid-Acting</th>
+                                <th style="padding: 0.5rem;">Long-Acting</th>
+                                <th style="padding: 0.5rem;">Meal</th>
+                                <th style="padding: 0.5rem;">Correction</th>
+                                <th style="padding: 0.5rem;">User Change</th>
+                            </tr>
+                        </thead>
+                        <tbody id="insulin-tbody" style="color: var(--text-primary);">
+                            <tr>
+                                <td colspan="6" style="padding: 1rem; text-align: center; color: var(--text-secondary);">No recent doses logged in this time range.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <!-- Upload/Import Area -->
         <div class="glass-panel upload-card">
             <h3 class="chart-title">Backfill Historical Data</h3>
@@ -422,6 +457,7 @@
 
     <script>
         let chart = null;
+        let insulinChart = null;
 
         // Trend arrows lookup
         const TREND_MAP = {
@@ -550,6 +586,7 @@
             }
 
             fetchStats(hours);
+            fetchInsulinHistory(hours);
 
             try {
                 const res = await fetch(`/api/glucose/history?hours=${hours}`);
@@ -677,7 +714,7 @@
                 const result = await res.json();
                 
                 if (res.ok) {
-                    statusEl.innerText = `Success! Parsed ${result.parsed} entries. Inserted ${result.inserted} new historical records.`;
+                    statusEl.innerText = `Success! Parsed ${result.parsed} readings and ${result.parsed_doses} doses. Inserted ${result.inserted} readings / ${result.inserted_doses} doses.`;
                     statusEl.style.color = 'var(--color-target)';
                     
                     // Reload charts
@@ -691,6 +728,132 @@
                 statusEl.innerText = `Failed to upload: ${err.message}`;
                 statusEl.style.color = 'var(--color-low)';
             }
+        }
+
+        // Fetch and display insulin history
+        async function fetchInsulinHistory(hours) {
+            try {
+                const res = await fetch(`/api/insulin/history?hours=${hours}`);
+                if (!res.ok) throw new Error();
+                const data = await res.json();
+                
+                // Update table
+                const tbody = document.getElementById('insulin-tbody');
+                if (data.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="6" style="padding: 1rem; text-align: center; color: var(--text-secondary);">No recent doses logged in this time range.</td></tr>`;
+                } else {
+                    tbody.innerHTML = data.map(d => {
+                        const localTime = new Date(d.timestamp);
+                        return `
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.03); height: 2.2rem;">
+                                <td style="padding: 0.5rem;">${localTime.toLocaleString()}</td>
+                                <td style="padding: 0.5rem; color: #ef4444; font-weight: 600;">${d.rapid_acting !== null ? d.rapid_acting + ' U' : '--'}</td>
+                                <td style="padding: 0.5rem; color: #f59e0b; font-weight: 600;">${d.long_acting !== null ? d.long_acting + ' U' : '--'}</td>
+                                <td style="padding: 0.5rem; color: #10b981; font-weight: 500;">${d.meal !== null ? d.meal + ' U' : '--'}</td>
+                                <td style="padding: 0.5rem; color: #3b82f6; font-weight: 500;">${d.correction !== null ? d.correction + ' U' : '--'}</td>
+                                <td style="padding: 0.5rem; color: var(--text-secondary);">${d.user_change !== null ? d.user_change + ' U' : '--'}</td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+
+                // Render Chart.js for insulin
+                renderInsulinChart(data);
+            } catch (err) {
+                console.warn("Could not fetch insulin history:", err);
+            }
+        }
+
+        // Render Chart.js for insulin
+        function renderInsulinChart(doses) {
+            const ctx = document.getElementById('insulinChart').getContext('2d');
+            if (insulinChart) {
+                insulinChart.destroy();
+            }
+
+            // Extract distinct insulin records
+            const rapidData = doses.filter(d => d.rapid_acting !== null).map(d => ({ x: new Date(d.timestamp), y: d.rapid_acting }));
+            const longData = doses.filter(d => d.long_acting !== null).map(d => ({ x: new Date(d.timestamp), y: d.long_acting }));
+            const mealData = doses.filter(d => d.meal !== null).map(d => ({ x: new Date(d.timestamp), y: d.meal }));
+            const corrData = doses.filter(d => d.correction !== null).map(d => ({ x: new Date(d.timestamp), y: d.correction }));
+
+            insulinChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    datasets: [
+                        {
+                            label: 'Rapid-Acting',
+                            data: rapidData,
+                            backgroundColor: 'rgba(239, 68, 68, 0.85)',
+                            borderColor: '#ef4444',
+                            borderWidth: 1,
+                            barThickness: 6
+                        },
+                        {
+                            label: 'Long-Acting',
+                            data: longData,
+                            backgroundColor: 'rgba(245, 158, 11, 0.85)',
+                            borderColor: '#f59e0b',
+                            borderWidth: 1,
+                            barThickness: 10
+                        },
+                        {
+                            label: 'Meal',
+                            data: mealData,
+                            backgroundColor: 'rgba(16, 185, 129, 0.85)',
+                            borderColor: '#10b981',
+                            borderWidth: 1,
+                            barThickness: 6
+                        },
+                        {
+                            label: 'Correction',
+                            data: corrData,
+                            backgroundColor: 'rgba(59, 130, 246, 0.85)',
+                            borderColor: '#3b82f6',
+                            borderWidth: 1,
+                            barThickness: 6
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top',
+                            labels: { color: '#9ca3af', font: { family: 'Inter', size: 10 } }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(17, 18, 36, 0.95)',
+                            borderColor: 'rgba(255,255,255,0.08)',
+                            borderWidth: 1,
+                            titleColor: '#9ca3af',
+                            bodyColor: '#f3f4f6'
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: {
+                                tooltipFormat: 'MMM d, h:mm a',
+                                displayFormats: {
+                                    hour: 'h:mm a',
+                                    day: 'MMM d'
+                                }
+                            },
+                            grid: { color: 'rgba(255, 255, 255, 0.03)' },
+                            ticks: { color: '#9ca3af', font: { family: 'Inter' } }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            title: { display: true, text: 'Units', color: '#9ca3af' },
+                            grid: { color: 'rgba(255, 255, 255, 0.03)' },
+                            ticks: { color: '#9ca3af', font: { family: 'Inter' } }
+                        }
+                    }
+                }
+            });
         }
     </script>
 </body>

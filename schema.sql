@@ -17,3 +17,24 @@ ON glucose_readings (timestamp, value);
 
 -- Indexes for efficient querying by timestamp
 CREATE INDEX IF NOT EXISTS idx_glucose_readings_timestamp ON glucose_readings (timestamp DESC);
+
+-- Insulin doses table
+CREATE TABLE IF NOT EXISTS insulin_doses (
+    id SERIAL PRIMARY KEY,
+    timestamp TIMESTAMPTZ NOT NULL,
+    rapid_acting DOUBLE PRECISION,  -- Rapid-Acting Insulin (units)
+    long_acting DOUBLE PRECISION,   -- Long-Acting Insulin (units)
+    meal DOUBLE PRECISION,          -- Meal Insulin (units)
+    correction DOUBLE PRECISION,    -- Correction Insulin (units)
+    user_change DOUBLE PRECISION,   -- User Change Insulin (units)
+    device VARCHAR(100),
+    serial_number VARCHAR(100),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Unique index to prevent duplicate insulin entries
+CREATE UNIQUE INDEX IF NOT EXISTS idx_insulin_doses_unique 
+ON insulin_doses (timestamp, rapid_acting, long_acting, meal, correction, user_change);
+
+-- Index for efficient querying by timestamp
+CREATE INDEX IF NOT EXISTS idx_insulin_doses_timestamp ON insulin_doses (timestamp DESC);

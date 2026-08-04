@@ -19,6 +19,7 @@ def parse_libreview_csv(file_path, timezone_str=DEFAULT_TIMEZONE):
 
     tz = pytz.timezone(timezone_str)
     readings = []
+    insulin_doses = []
     
     with open(file_path, 'r', encoding='utf-8-sig') as f:
         reader = csv.reader(f)
@@ -57,6 +58,13 @@ def parse_libreview_csv(file_path, timezone_str=DEFAULT_TIMEZONE):
         historic_col = next((k for k in col_map.keys() if "Historic Glucose" in k), None)
         scan_col = next((k for k in col_map.keys() if "Scan Glucose" in k), None)
 
+        # Insulin columns
+        rapid_acting_col = next((k for k in col_map.keys() if "Rapid-Acting Insulin" in k), None)
+        long_acting_col = next((k for k in col_map.keys() if "Long-Acting Insulin" in k), None)
+        meal_col = next((k for k in col_map.keys() if "Meal Insulin" in k), None)
+        correction_col = next((k for k in col_map.keys() if "Correction Insulin" in k), None)
+        user_change_col = next((k for k in col_map.keys() if "User Change Insulin" in k), None)
+
         # Process data rows
         for row_num, row in enumerate(reader, start=header_index + 2):
             if not row or len(row) < len(col_map):
@@ -92,50 +100,81 @@ def parse_libreview_csv(file_path, timezone_str=DEFAULT_TIMEZONE):
                 localized_dt = tz.localize(dt)
                 utc_dt = localized_dt.astimezone(pytz.utc)
 
-                raw_record_type = row[col_map[record_type_col]].strip()
-                if not raw_record_type:
-                    continue
-                record_type = int(raw_record_type)
+                # Check for insulin doses in this row
+                insulin_info = {}
+                has_insulin = False
+
+                for key, col in [
+                    ("rapid_acting", rapid_acting_col),
+                    ("long_acting", long_acting_col),
+                    ("meal", meal_col),
+                    ("correction", correction_col),
+                    ("user_change", user_change_col)
+                ]:
+                    if col:
+                        raw_val = row[col_map[col]].strip()
+                        if raw_val:
+                            try:
+                                insulin_info[key] = float(raw_val)
+                                has_insulin = True
+                            except ValueError:
+                                pass
 
                 # Determine value and type
                 value = None
                 reading_type = None
 
-                # Record Type: 0 = Historic (Continuous), 1 = Scan (Manual)
-                if record_type == 0 and historic_col:
-                    raw_val = row[col_map[historic_col]].strip()
-                    if raw_val:
-                        value = float(raw_val)
-                        reading_type = "historic"
-                elif record_type == 1 and scan_col:
-                    raw_val = row[col_map[scan_col]].strip()
-                    if raw_val:
-                        value = float(raw_val)
-                        reading_type = "scan"
+                raw_record_type = row[col_map[record_type_col]].strip()
+                record_type = None
+                if raw_record_type:
+                    try:
+                        record_type = int(raw_record_type)
+                        # Record Type: 0 = Historic (Continuous), 1 = Scan (Manual)
+                        if record_type == 0 and historic_col:
+                            raw_val = row[col_map[historic_col]].strip()
+                            if raw_val:
+                                value = float(raw_val)
+                                reading_type = "historic"
+                        elif record_type == 1 and scan_col:
+                            raw_val = row[col_map[scan_col]].strip()
+                            if raw_val:
+                                value = float(raw_val)
+                                reading_type = "scan"
+                    except ValueError:
+                        pass
                 
-                # If there's no value (e.g. food/insulin logs row), skip it
-                if value is None:
+                # If there's neither glucose nor insulin, skip
+                if value is None and not has_insulin:
                     continue
 
                 device = row[col_map[device_col]].strip() if device_col else None
                 serial = row[col_map[serial_col]].strip() if serial_col else None
 
-                readings.append({
-                    "timestamp": utc_dt,
-                    "value": value,
-                    "type": reading_type,
-                    "device": device,
-                    "serial_number": serial,
-                    "record_type": record_type
-                })
+                if value is not None:
+                    readings.append({
+                        "timestamp": utc_dt,
+                        "value": value,
+                        "type": reading_type,
+                        "device": device,
+                        "serial_number": serial,
+                        "record_type": record_type
+                    })
+
+                if has_insulin:
+                    insulin_doses.append({
+                        "timestamp": utc_dt,
+                        "device": device,
+                        "serial_number": serial,
+                        **insulin_info
+                    })
 
             except Exception as e:
                 # Log parsing errors but keep processing other rows
                 print(f"Skipping row {row_num} due to parsing error: {e}")
                 continue
 
-    print(f"Successfully parsed {len(readings)} readings from {file_path}")
-    return readings
+    print(f"Successfully parsed {len(readings)} readings and {len(insulin_doses)} insulin doses from {file_path}")
+    return readings, insulin_doses
 
 if __name__ == "__main__":
     import sys
@@ -145,10 +184,14 @@ if __name__ == "__main__":
         
     csv_file = sys.argv[1]
     try:
-        data = parse_libreview_csv(csv_file)
-        if data:
-            print("First 3 readings:")
-            for r in data[:3]:
+        readings, doses = parse_libreview_csv(csv_file)
+        if readings:
+            print(f"First 3 readings (total {len(readings)}):")
+            for r in readings[:3]:
                 print(r)
+        if doses:
+            print(f"First 3 insulin doses (total {len(doses)}):")
+            for d in doses[:3]:
+                print(d)
     except Exception as e:
         print(f"Error: {e}")
