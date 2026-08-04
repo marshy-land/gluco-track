@@ -18,27 +18,32 @@ DEFAULT_ISFS = {
 }
 
 def load_heuristics_params():
-    """Loads saved heuristics and ML model weights from heuristics_params.json."""
-    if os.path.exists(PARAMS_FILE):
-        try:
-            with open(PARAMS_FILE, "r") as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"Error loading heuristics params: {e}")
-    return {
+    """Loads saved heuristics and ML model weights from the database."""
+    default_params = {
         "isf": DEFAULT_ISFS.copy(),
         "model_trained": False,
         "coefficients": None,
         "training_stats": None
     }
+    
+    try:
+        saved = db.get_system_setting("heuristics_params", default_params)
+        if saved and isinstance(saved, dict):
+            for k, v in default_params.items():
+                if k not in saved:
+                    saved[k] = v
+            return saved
+    except Exception as e:
+        print(f"Error loading heuristics params from DB: {e}")
+        
+    return default_params
 
 def save_heuristics_params(params):
-    """Saves heuristics and ML model weights to heuristics_params.json."""
+    """Saves heuristics and ML model weights to the database."""
     try:
-        with open(PARAMS_FILE, "w") as f:
-            json.dump(params, f, indent=2)
+        db.set_system_setting("heuristics_params", params)
     except Exception as e:
-        print(f"Error saving heuristics params: {e}")
+        print(f"Error saving heuristics params to DB: {e}")
 
 def get_time_of_day_bucket(dt, timezone_str="America/New_York"):
     """Determines the time-of-day bucket based on local time hour."""

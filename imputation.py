@@ -196,7 +196,6 @@ def detect_and_impute_missing_doses(
             raw_imputed_dose = unexplained_drop / (isf * f_act)
 
             # Clamp estimated dose to physiological range [1.0 U, 15.0 U] and round to nearest whole integer
-            import math
             imputed_dose = max(1.0, min(15.0, float(math.floor(raw_imputed_dose + 0.5))))
 
             # Check if there is already a logged dose near t_start (+/- 120 mins)

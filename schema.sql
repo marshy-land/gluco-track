@@ -58,3 +58,17 @@ ON food_logs (timestamp, carbs_g, food_type);
 
 -- Index for efficient querying by timestamp
 CREATE INDEX IF NOT EXISTS idx_food_logs_timestamp ON food_logs (timestamp DESC);
+
+-- System settings and persistent state (e.g. heuristics parameters)
+CREATE TABLE IF NOT EXISTS system_settings (
+    key VARCHAR(255) PRIMARY KEY,
+    value JSONB NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- System settings and persistent state (e.g. heuristics parameters)
+CREATE TABLE IF NOT EXISTS system_settings (
+    key VARCHAR(255) PRIMARY KEY,
+    value JSONB NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);

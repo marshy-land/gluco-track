@@ -320,3 +320,40 @@ def get_food_history(limit_hours=24, include_imputed=False):
             return cur.fetchall()
     finally:
         conn.close()
+
+import json
+
+def get_system_setting(key, default=None):
+    """Retrieves a JSON system setting by key."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT value FROM system_settings WHERE key = %s", (key,))
+            row = cur.fetchone()
+            if row:
+                return row[0]
+            return default
+    except Exception as e:
+        print(f"Error getting system setting {key}: {e}")
+        return default
+    finally:
+        conn.close()
+
+def set_system_setting(key, value):
+    """Sets a JSON system setting by key."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO system_settings (key, value, updated_at)
+                VALUES (%s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (key) DO UPDATE SET 
+                    value = EXCLUDED.value,
+                    updated_at = EXCLUDED.updated_at
+            """, (key, json.dumps(value)))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Error setting system setting {key}: {e}")
+    finally:
+        conn.close()
