@@ -67,10 +67,17 @@ def parse_libreview_csv(file_path, timezone_str=DEFAULT_TIMEZONE):
                 if not raw_time:
                     continue
                 
-                # Parse timestamp (LibreView format is usually YYYY-MM-DD HH:MM or MM-DD-YYYY HH:MM)
-                # Let's support both formats
+                # Parse timestamp (LibreView formats can include 24h or 12h AM/PM)
                 dt = None
-                for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%m-%d-%Y %H:%M", "%d-%m-%Y %H:%M"):
+                formats = (
+                    "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", 
+                    "%m-%d-%Y %H:%M:%S", "%m-%d-%Y %H:%M", 
+                    "%d-%m-%Y %H:%M:%S", "%d-%m-%Y %H:%M",
+                    "%m-%d-%Y %I:%M %p", "%m-%d-%Y %I:%M:%S %p",
+                    "%Y-%m-%d %I:%M %p", "%Y-%m-%d %I:%M:%S %p",
+                    "%d-%m-%Y %I:%M %p", "%d-%m-%Y %I:%M:%S %p"
+                )
+                for fmt in formats:
                     try:
                         dt = datetime.strptime(raw_time, fmt)
                         break
