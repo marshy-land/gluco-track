@@ -441,6 +441,8 @@
             <div class="chart-header">
                 <h3 class="chart-title">Glucose History</h3>
                 <div class="time-filters">
+                    <button class="filter-btn" onclick="loadHistory(3, this)">3H</button>
+                    <button class="filter-btn" onclick="loadHistory(6, this)">6H</button>
                     <button class="filter-btn active" onclick="loadHistory(24, this)">24H</button>
                     <button class="filter-btn" onclick="loadHistory(72, this)">3D</button>
                     <button class="filter-btn" onclick="loadHistory(168, this)">7D</button>
@@ -746,33 +748,43 @@
                 }));
 
                 let predictionsData = null;
-                if (hours === 24) {
-                    const preds = await fetchPredictions();
-                    if (preds && preds.length > 0 && chartData.length > 0) {
-                        const latestPt = chartData[chartData.length - 1];
-                        predictionsData = [latestPt]; // start from latest reading
-                        
-                        preds.forEach(p => {
-                            const predTime = new Date(latestPt.x.getTime() + p.minutes * 60000);
-                            predictionsData.push({
-                                x: predTime,
-                                y: p.value
+                let minTime = null;
+                let maxTime = null;
+
+                if (chartData.length > 0) {
+                    const latestTime = chartData[chartData.length - 1].x;
+                    minTime = new Date(latestTime.getTime() - hours * 60 * 60 * 1000);
+                    
+                    if (hours <= 24) {
+                        const preds = await fetchPredictions();
+                        if (preds && preds.length > 0) {
+                            predictionsData = [{ x: latestTime, y: chartData[chartData.length - 1].y }]; // start from latest reading
+                            
+                            preds.forEach(p => {
+                                const predTime = new Date(latestTime.getTime() + p.minutes * 60000);
+                                predictionsData.push({
+                                    x: predTime,
+                                    y: p.value
+                                });
                             });
-                        });
+                        }
+                        // Extend x-axis to fit the 1-hour prediction window
+                        maxTime = new Date(latestTime.getTime() + 60 * 60 * 1000);
+                    } else {
+                        // Update IOB/Corrections box anyway
+                        fetchPredictions();
+                        maxTime = latestTime;
                     }
-                } else {
-                    // Update IOB/Corrections box anyway
-                    fetchPredictions();
                 }
 
-                renderChart(chartData, predictionsData);
+                renderChart(chartData, predictionsData, minTime, maxTime);
             } catch (err) {
                 console.error("Error loading history:", err);
             }
         }
 
         // Render Chart.js
-        function renderChart(dataPoints, predictionPoints = null) {
+        function renderChart(dataPoints, predictionPoints = null, minTime = null, maxTime = null) {
             const ctx = document.getElementById('glucoseChart').getContext('2d');
             
             if (chart) {
@@ -841,6 +853,8 @@
                     scales: {
                         x: {
                             type: 'time',
+                            min: minTime,
+                            max: maxTime,
                             time: {
                                 tooltipFormat: 'MMM d, h:mm a',
                                 displayFormats: {

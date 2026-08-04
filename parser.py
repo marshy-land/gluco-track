@@ -58,12 +58,21 @@ def parse_libreview_csv(file_path, timezone_str=DEFAULT_TIMEZONE):
         historic_col = next((k for k in col_map.keys() if "Historic Glucose" in k), None)
         scan_col = next((k for k in col_map.keys() if "Scan Glucose" in k), None)
 
-        # Insulin columns
-        rapid_acting_col = next((k for k in col_map.keys() if "Rapid-Acting Insulin" in k), None)
-        long_acting_col = next((k for k in col_map.keys() if "Long-Acting Insulin" in k), None)
-        meal_col = next((k for k in col_map.keys() if "Meal Insulin" in k), None)
-        correction_col = next((k for k in col_map.keys() if "Correction Insulin" in k), None)
-        user_change_col = next((k for k in col_map.keys() if "User Change Insulin" in k), None)
+        # Insulin columns (prioritize numeric columns containing "units")
+        rapid_acting_col = next((k for k in col_map.keys() if "Rapid-Acting" in k and "units" in k.lower()), None) or \
+                           next((k for k in col_map.keys() if "Rapid-Acting" in k), None)
+        
+        long_acting_col = next((k for k in col_map.keys() if "Long-Acting" in k and "units" in k.lower()), None) or \
+                          next((k for k in col_map.keys() if "Long-Acting" in k), None)
+        
+        meal_col = next((k for k in col_map.keys() if "Meal" in k and "units" in k.lower()), None) or \
+                   next((k for k in col_map.keys() if "Meal" in k), None)
+        
+        correction_col = next((k for k in col_map.keys() if "Correction" in k and "units" in k.lower()), None) or \
+                         next((k for k in col_map.keys() if "Correction" in k), None)
+        
+        user_change_col = next((k for k in col_map.keys() if "User Change" in k and "units" in k.lower()), None) or \
+                          next((k for k in col_map.keys() if "User Change" in k), None)
 
         # Process data rows
         for row_num, row in enumerate(reader, start=header_index + 2):
