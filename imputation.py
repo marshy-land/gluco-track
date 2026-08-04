@@ -183,8 +183,12 @@ def detect_and_impute_missing_doses(
                     near_logged = True
                     break
 
+            confidence_divisor = 1.0
             if near_logged:
-                continue
+                # Instead of completely skipping, apply a divisor to the confidence score.
+                # This resolves imputed doses near recorded doses by keeping them only if 
+                # their raw confidence is extremely high (e.g. massive unexplained drop).
+                confidence_divisor = 2.0
 
             # Compute Confidence Score Components:
             # 1. C_magnitude: proportional to unexplained drop magnitude (20 -> 0.0, 50+ -> 1.0)
@@ -214,7 +218,7 @@ def detect_and_impute_missing_doses(
                         break
 
             confidence_score = round(
-                0.35 * c_magnitude + 0.30 * c_shape + 0.20 * c_hyper + 0.15 * c_no_carb,
+                (0.35 * c_magnitude + 0.30 * c_shape + 0.20 * c_hyper + 0.15 * c_no_carb) / confidence_divisor,
                 2
             )
 

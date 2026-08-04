@@ -255,9 +255,10 @@ class TestChallengerImputation(unittest.TestCase):
         imputed = detect_and_impute_missing_doses(readings, logged_doses)
         self.assertEqual(len(imputed), 0, "Drop explained by logged IOB should NOT produce imputed dose")
 
-    def test_near_logged_dose_suppression(self):
+    def test_near_logged_dose_divisor(self):
         """
-        If a dose is logged within 45 mins of drop start time, candidate imputation should be suppressed.
+        If a dose is logged within 45 mins of drop start time, candidate imputation is not suppressed,
+        but its confidence score is divided by 2.
         """
         readings = []
         for m in range(0, 95, 5):
@@ -270,7 +271,8 @@ class TestChallengerImputation(unittest.TestCase):
         ]
 
         imputed = detect_and_impute_missing_doses(readings, logged_doses)
-        self.assertEqual(len(imputed), 0, "Imputation near logged dose (+/- 45m) should be suppressed")
+        self.assertEqual(len(imputed), 1, "Imputation near logged dose should not be completely suppressed")
+        self.assertEqual(imputed[0]['confidence_score'], 0.50, "Confidence should be divided by 2 (1.0 -> 0.50)")
 
     def test_minimum_3h_gap_between_imputed_doses(self):
         """
