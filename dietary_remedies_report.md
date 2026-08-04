@@ -1,8 +1,8 @@
 # Executive Summary - Literature-Backed Dietary Remedies Report
 
-**Report Generation Date:** 2026-08-04 08:20:45 UTC
+**Report Generation Date:** 2026-08-04 09:07:30 UTC
 **Analysis Period:** 2026-07-05 to 2026-08-04 (31 Days)
-**Total Readings Analyzed:** 10804
+**Total Readings Analyzed:** 10890
 
 ---
 
@@ -10,19 +10,19 @@
 
 | Metric | Patient Value | Clinical Target | Status / Assessment |
 | :--- | :--- | :--- | :--- |
-| **Mean Glucose** | 184.9 mg/dL | < 154.0 mg/dL | Elevated |
-| **GMI / Estimated A1c** | 7.73% | < 7.0% | Elevated |
+| **Mean Glucose** | 184.3 mg/dL | < 154.0 mg/dL | Elevated |
+| **GMI / Estimated A1c** | 7.72% | < 7.0% | Elevated |
 | **Time in Range (TIR 70-180 mg/dL)** | 46.9% | > 70.0% | Below Target |
-| **Time Above Range (TAR > 180 mg/dL)** | 51.0% | < 25.0% | Elevated |
-| **Time Below Range (TBR < 70 mg/dL)** | 2.1% | < 4.0% | Optimal |
-| **Glycemic Variability (CV)** | 36.6% | <= 36.0% | High Volatility |
+| **Time Above Range (TAR > 180 mg/dL)** | 50.8% | < 25.0% | Elevated |
+| **Time Below Range (TBR < 70 mg/dL)** | 2.2% | < 4.0% | Optimal |
+| **Glycemic Variability (CV)** | 36.8% | <= 36.0% | High Volatility |
 
 ### Detected Anomaly Overview
 | Anomaly Category | Detected Incidents | Primary Impact Window | Priority Level |
 | :--- | :--- | :--- | :--- |
 | **Postprandial Spikes** | 127 incidents | 1-3 hrs post-meal | High |
 | **Dawn Phenomenon** | 21 incidents | 04:00 - 08:00 AM | High |
-| **Nocturnal Hypoglycemia** | 32 incidents | 22:00 - 06:00 AM | High |
+| **Nocturnal Hypoglycemia** | 34 incidents | 22:00 - 06:00 AM | High |
 | **High Glycemic Variability** | 10 days | All-day volatility | High |
 
 ---
@@ -37,18 +37,18 @@
 
 ### 2.2 Dawn Phenomenon
 - **Total Incidents Detected:** 21
-- **Average Morning Elevation:** +63.5 mg/dL above pre-sleep baseline
+- **Average Morning Elevation:** +63.8 mg/dL above pre-sleep baseline
 - **Time Window:** 04:30 AM – 07:30 AM
 - **Pattern Description:** Glycemic rise occurring without preceding nocturnal hypoglycemia (<70 mg/dL). Verified Somogyi exclusion.
 
 ### 2.3 Nocturnal Hypoglycemia
-- **Total Events Detected:** 32
-- **Nadir Value:** 53.0 mg/dL (Mean Nadir: 62.6 mg/dL)
+- **Total Events Detected:** 34
+- **Nadir Value:** 53.0 mg/dL (Mean Nadir: 62.8 mg/dL)
 - **Time Window:** 01:30 AM – 04:00 AM
 - **Pattern Description:** Dips below 70 mg/dL during sleep hours.
 
 ### 2.4 High Glycemic Variability
-- **Overall CV:** 36.6% (Clinical Target: <= 36.0%)
+- **Overall CV:** 36.8% (Clinical Target: <= 36.0%)
 - **Volatile Days Count:** 10 days
 - **Pattern Description:** Volatile glucose excursions indicating macronutrient imbalance or irregular meal timing.
 

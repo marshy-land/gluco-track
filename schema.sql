@@ -40,3 +40,21 @@ ON insulin_doses (timestamp, rapid_acting, long_acting, meal, correction, user_c
 
 -- Index for efficient querying by timestamp
 CREATE INDEX IF NOT EXISTS idx_insulin_doses_timestamp ON insulin_doses (timestamp DESC);
+
+-- Food / Carbohydrate logs table
+CREATE TABLE IF NOT EXISTS food_logs (
+    id SERIAL PRIMARY KEY,
+    timestamp TIMESTAMPTZ NOT NULL,
+    carbs_g DOUBLE PRECISION,      -- Grams of carbohydrates
+    food_type VARCHAR(255),        -- Optional description of food
+    is_imputed BOOLEAN DEFAULT FALSE,
+    confidence_score DOUBLE PRECISION,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Unique index to prevent duplicate food entries
+CREATE UNIQUE INDEX IF NOT EXISTS idx_food_logs_unique 
+ON food_logs (timestamp, carbs_g, food_type);
+
+-- Index for efficient querying by timestamp
+CREATE INDEX IF NOT EXISTS idx_food_logs_timestamp ON food_logs (timestamp DESC);

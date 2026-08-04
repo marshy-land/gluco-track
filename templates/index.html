@@ -553,6 +553,35 @@
                 </form>
             </div>
 
+            <!-- Quick Log Food / Carbs -->
+            <div class="glass-panel" style="display: flex; flex-direction: column;">
+                <h3 class="chart-title" style="margin-bottom: 0.5rem;">Log Food / Carbs</h3>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+                    Log carbohydrates to track glucose spikes. Unlogged spikes will be imputed.
+                </p>
+                
+                <form id="log-food-form" onsubmit="handleLogFood(event)" style="display: flex; flex-direction: column; gap: 0.85rem;">
+                    <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                        <label style="font-size: 0.75rem; color: var(--text-secondary);">Carbohydrates (g)</label>
+                        <input type="number" id="log-carbs" step="0.1" min="0" placeholder="e.g. 45" style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); color: #fff; padding: 0.4rem; border-radius: 6px; font-size: 0.85rem;" required>
+                    </div>
+                    
+                    <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                        <label style="font-size: 0.75rem; color: var(--text-secondary);">Food Type (Optional)</label>
+                        <input type="text" id="log-food-type" placeholder="e.g. Apple, Pizza" style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); color: #fff; padding: 0.4rem; border-radius: 6px; font-size: 0.85rem;">
+                    </div>
+                    
+                    <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                        <label style="font-size: 0.75rem; color: var(--text-secondary);">Time of Consumption</label>
+                        <input type="datetime-local" id="log-food-time" style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); color: #fff; padding: 0.4rem; border-radius: 6px; font-size: 0.85rem;">
+                    </div>
+                    
+                    <button type="submit" style="background: linear-gradient(135deg, #10b981 0%, #047857 100%); color: white; border: none; padding: 0.6rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.85rem; transition: opacity 0.2s; margin-top: auto;" onmouseover="this.style.opacity=0.9" onmouseout="this.style.opacity=1">Log Food</button>
+                    <div id="log-food-status" style="font-size: 0.8rem; text-align: center; margin-top: 0.25rem;"></div>
+                </form>
+            </div>
+
+
             <!-- Tuning & Heuristics -->
             <div class="glass-panel" style="display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
@@ -883,7 +912,16 @@
                     }
                 }
 
-                renderChart(chartData, predictionsData, minTime, maxTime);
+                let foodData = null;
+                try {
+                    const foodRes = await fetch(`/api/food/history?hours=${hours}&include_imputed=true`);
+                    foodData = await foodRes.json();
+                } catch (e) {
+                    console.warn("Could not fetch food history:", e);
+                    foodData = [];
+                }
+
+                renderChart(chartData, predictionsData, foodData, minTime, maxTime);
                 fetchInsulinHistory(hours, minTime, maxTime);
             } catch (err) {
                 console.error("Error loading history:", err);
@@ -901,39 +939,67 @@
             // Neon line gradient
             const lineGradient = ctx.createLinearGradient(0, 0, 0, 300);
             lineGradient.addColorStop(0, 'rgba(59, 130, 246, 1)');
-            lineGradient.addColorStop(1, 'rgba(16, 185, 129, 0.8)');
-
-            // Area fill gradient
-            const fillGradient = ctx.createLinearGradient(0, 0, 0, 300);
-            fillGradient.addColorStop(0, 'rgba(59, 130, 246, 0.15)');
-            fillGradient.addColorStop(1, 'rgba(21, 22, 43, 0.01)');
-
             const datasets = [{
-                label: 'Glucose',
+                label: 'Glucose (mg/dL)',
                 data: dataPoints,
-                borderColor: lineGradient,
-                backgroundColor: fillGradient,
-                borderWidth: 3,
-                pointRadius: dataPoints.length > 300 ? 0 : 2,
+                borderColor: '#10b981',
+                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                borderWidth: 2,
+                pointRadius: 0,
                 pointHoverRadius: 6,
-                pointBackgroundColor: '#3b82f6',
                 fill: true,
-                tension: 0.3
+                tension: 0.4,
+                yAxisID: 'y'
             }];
 
             if (predictionPoints && predictionPoints.length > 0) {
                 datasets.push({
-                    label: 'Projection',
+                    label: 'Forecast (mg/dL)',
                     data: predictionPoints,
-                    borderColor: 'rgba(59, 130, 246, 0.75)',
+                    borderColor: '#3b82f6',
                     borderWidth: 2,
                     borderDash: [6, 4],
                     pointRadius: 4,
                     pointHoverRadius: 6,
                     pointBackgroundColor: '#3b82f6',
                     fill: false,
-                    tension: 0.1
+                    tension: 0.1,
+                    yAxisID: 'y'
                 });
+            }
+
+            if (foodData && foodData.length > 0) {
+                const loggedFood = foodData.filter(f => !f.is_imputed).map(f => ({ x: new Date(f.timestamp), y: f.carbs_g, raw: f }));
+                const imputedFood = foodData.filter(f => f.is_imputed).map(f => ({ x: new Date(f.timestamp), y: f.carbs_g, raw: f }));
+                
+                if (loggedFood.length > 0) {
+                    datasets.push({
+                        label: 'Logged Carbs (g)',
+                        data: loggedFood,
+                        type: 'scatter',
+                        backgroundColor: 'rgba(234, 179, 8, 1)',
+                        borderColor: '#eab308',
+                        borderWidth: 2,
+                        pointRadius: 6,
+                        pointStyle: 'triangle',
+                        yAxisID: 'y1'
+                    });
+                }
+                
+                if (imputedFood.length > 0) {
+                    datasets.push({
+                        label: 'Imputed Carbs (g)',
+                        data: imputedFood,
+                        type: 'scatter',
+                        backgroundColor: 'rgba(234, 179, 8, 0.4)',
+                        borderColor: '#eab308',
+                        borderWidth: 1,
+                        borderDash: [2, 2],
+                        pointRadius: 6,
+                        pointStyle: 'triangle',
+                        yAxisID: 'y1'
+                    });
+                }
             }
 
             chart = new Chart(ctx, {
@@ -945,7 +1011,7 @@
                     responsive: true,
                     maintainAspectRatio: false,
                     plugins: {
-                        legend: { display: false },
+                        legend: { display: true },
                         tooltip: {
                             backgroundColor: 'rgba(17, 18, 36, 0.95)',
                             borderColor: 'rgba(255,255,255,0.08)',
@@ -953,7 +1019,19 @@
                             titleColor: '#9ca3af',
                             bodyColor: '#f3f4f6',
                             callbacks: {
-                                label: (context) => ` Glucose: ${context.parsed.y} mg/dL`
+                                label: (context) => {
+                                    if (context.dataset.yAxisID === 'y1') {
+                                        let lbl = ` Carbs: ${context.parsed.y}g`;
+                                        if (context.raw.raw && context.raw.raw.food_type) {
+                                            lbl += ` (${context.raw.raw.food_type})`;
+                                        }
+                                        if (context.raw.raw && context.raw.raw.is_imputed) {
+                                            lbl += ` [Imputed ${(context.raw.raw.confidence_score * 100).toFixed(0)}%]`;
+                                        }
+                                        return lbl;
+                                    }
+                                    return ` Glucose: ${context.parsed.y} mg/dL`;
+                                }
                             }
                         }
                     },
@@ -973,11 +1051,13 @@
                             ticks: { color: '#9ca3af', font: { family: 'Inter' } }
                         },
                         y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
                             min: 40,
                             max: 350,
                             grid: { color: 'rgba(255, 255, 255, 0.03)' },
                             ticks: { color: '#9ca3af', font: { family: 'Inter' } },
-                            // Add auxiliary lines for targets (70 - 180)
                             annotation: {
                                 annotations: {
                                     box1: {
@@ -989,10 +1069,48 @@
                                     }
                                 }
                             }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            min: 0,
+                            max: 150,
+                            grid: { drawOnChartArea: false }, // don't show grid lines for secondary axis
+                            ticks: { color: '#eab308', font: { family: 'Inter' }, callback: function(value) { return value + 'g'; } }
                         }
                     }
                 }
             });
+        }
+
+        // Log food manually
+        async function handleLogFood(event) {
+            event.preventDefault();
+            const formData = new FormData(event.target);
+            const data = Object.fromEntries(formData.entries());
+            
+            try {
+                const res = await fetch('/api/food/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        timestamp: data.time,
+                        carbs_g: parseFloat(data.carbs),
+                        food_type: data.description
+                    })
+                });
+                
+                if (res.ok) {
+                    event.target.reset();
+                    loadHistory(24);
+                    fetchNutritionalImpact();
+                } else {
+                    alert('Failed to log food.');
+                }
+            } catch (err) {
+                console.error(err);
+            }
         }
 
         // Upload and process CSV backfill
@@ -1300,6 +1418,64 @@
                     fetchLiveData();
                 } else {
                     statusEl.innerText = `Error: ${result.detail || 'Failed to log dose'}`;
+                    statusEl.style.color = "var(--color-low)";
+                }
+            } catch (err) {
+                statusEl.innerText = `Failed to connect: ${err.message}`;
+                statusEl.style.color = "var(--color-low)";
+            }
+        }
+
+        // Handle manual food logging form submission
+        async function handleLogFood(e) {
+            e.preventDefault();
+            const statusEl = document.getElementById('log-food-status');
+            statusEl.innerText = "Logging food...";
+            statusEl.style.color = "var(--text-secondary)";
+
+            const carbs = parseFloat(document.getElementById('log-carbs').value) || null;
+            const foodType = document.getElementById('log-food-type').value;
+            const timeVal = document.getElementById('log-food-time').value;
+
+            if (carbs === null) {
+                statusEl.innerText = "Error: Enter grams of carbohydrates.";
+                statusEl.style.color = "var(--color-low)";
+                return;
+            }
+
+            let timestamp = null;
+            if (timeVal) {
+                timestamp = new Date(timeVal).toISOString();
+            }
+
+            const payload = {
+                timestamp: timestamp,
+                carbs_g: carbs,
+                food_type: foodType
+            };
+
+            try {
+                const res = await fetch('/api/food/log', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                const result = await res.json();
+                if (res.ok) {
+                    statusEl.innerText = "Food logged successfully!";
+                    statusEl.style.color = "var(--color-target)";
+                    
+                    // Reset fields
+                    document.getElementById('log-carbs').value = "";
+                    document.getElementById('log-food-type').value = "";
+                    
+                    // Refresh data on screen
+                    const activeFilter = document.querySelector('.filter-btn.active');
+                    const hours = activeFilter ? parseInt(activeFilter.getAttribute('onclick').match(/\d+/)[0]) : 24;
+                    loadHistory(hours);
+                } else {
+                    statusEl.innerText = `Error: ${result.detail || 'Failed to log food'}`;
                     statusEl.style.color = "var(--color-low)";
                 }
             } catch (err) {

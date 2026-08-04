@@ -137,6 +137,47 @@ def api_train_heuristics(days: int = Query(default=30, ge=7, le=90)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+class FoodEntry(BaseModel):
+    carbs_g: float
+    food_type: str = None
+    timestamp: datetime = None
+
+@app.post("/api/food/log")
+async def log_food(entry: FoodEntry):
+    ts = entry.timestamp if entry.timestamp else datetime.now(timezone.utc)
+    try:
+        inserted_id = db.insert_food_log(
+            carbs_g=entry.carbs_g,
+            timestamp=ts,
+            food_type=entry.food_type
+        )
+        return {"status": "success", "id": inserted_id, "timestamp": ts.isoformat()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/food/history")
+async def get_food_history(hours: int = 24, include_imputed: bool = False):
+    try:
+        food_logs = db.get_food_history(limit_hours=hours, include_imputed=False) # Always get false from DB to prevent feedback loop
+        
+        if include_imputed:
+            # Generate missing meals on the fly
+            from carb_imputation import detect_and_impute_missing_meals
+            readings = db.get_history(limit_hours=hours)
+            imputed_meals = detect_and_impute_missing_meals(
+                sorted_readings=sorted(readings, key=lambda x: x['timestamp']),
+                sorted_food_logs=sorted(food_logs, key=lambda x: x['timestamp']),
+                min_confidence=0.50
+            )
+            # Merge and sort
+            all_food = food_logs + imputed_meals
+            all_food.sort(key=lambda x: x['timestamp'])
+            return all_food
+            
+        return food_logs
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/heuristics/status")
 def api_heuristics_status():
     """Retrieves the status, time-of-day ISF values, and training diagnostics of the heuristics engine."""

@@ -50,10 +50,18 @@ def init_db():
                             GROUP BY timestamp
                         )
                     """)
+                    
+                    # Safe schema migrations for food_logs
+                    try:
+                        cur.execute("ALTER TABLE food_logs ADD COLUMN IF NOT EXISTS is_imputed BOOLEAN DEFAULT FALSE;")
+                        cur.execute("ALTER TABLE food_logs ADD COLUMN IF NOT EXISTS confidence_score DOUBLE PRECISION;")
+                    except psycopg2.errors.UndefinedTable:
+                        pass # food_logs doesn't exist yet, that's fine, schema.sql creates it. Wait, schema_sql is executed before this.
+                        
                 finally:
                     cur.execute("SELECT pg_advisory_unlock(987654321);")
             conn.commit()
-            print("Database initialized and duplicate insulin logs cleaned up.")
+            print("Database initialized and schema updated.")
         except Exception as e:
             conn.rollback()
             print(f"Error initializing database: {e}")
@@ -269,5 +277,46 @@ def get_insulin_history(limit_hours=24, include_imputed=False):
     except Exception as e:
         print(f"Error fetching insulin history: {e}")
         return []
+    finally:
+        conn.close()
+
+def insert_food_log(carbs_g, timestamp, food_type=None, is_imputed=False, confidence_score=None):
+    """Inserts a food/carbohydrate log."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO food_logs (timestamp, carbs_g, food_type, is_imputed, confidence_score)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (timestamp, carbs_g, food_type) DO NOTHING
+                RETURNING id
+            """, (timestamp, carbs_g, food_type, is_imputed, confidence_score))
+            
+            inserted = cur.fetchone()
+            conn.commit()
+            return inserted[0] if inserted else None
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+def get_food_history(limit_hours=24, include_imputed=False):
+    """Retrieves food logs for the given time window."""
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            query = """
+                SELECT id, timestamp, carbs_g, food_type, is_imputed, confidence_score
+                FROM food_logs 
+                WHERE timestamp >= NOW() - INTERVAL %s
+            """
+            if not include_imputed:
+                query += " AND is_imputed = FALSE"
+                
+            query += " ORDER BY timestamp ASC"
+            
+            cur.execute(query, (f"{limit_hours} hours",))
+            return cur.fetchall()
     finally:
         conn.close()
