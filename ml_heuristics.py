@@ -715,3 +715,62 @@ def get_nutritional_impact(db_session=None, hours_back=720, timezone_str="Americ
     """Alias function wrapping calculate_nutritional_impact_modifiers."""
     return calculate_nutritional_impact_modifiers(readings=None, doses=None, hours_back=hours_back, timezone_str=timezone_str)
 
+
+
+def train_imputation_calibration(readings, doses):
+    """
+    Compares the imputation algorithm's guesses against actual ground-truth logged doses
+    to compute an empirical calibration multiplier.
+    """
+    from imputation import detect_and_impute_missing_doses
+    
+    # Filter to only include actual (non-imputed) doses that are > 0
+    actual_doses = [d for d in doses if (d.get('rapid_acting') or 0) > 0 and not d.get('is_imputed')]
+    
+    if not actual_doses:
+        return 1.0 # No ground truth to calibrate against
+        
+    # Create dummy doses with 0 rapid_acting so the imputation algorithm thinks they are missing
+    # but still preserves meal info so it doesn't overly penalize confidence
+    dummy_doses = []
+    for d in doses:
+        d_copy = dict(d)
+        d_copy['rapid_acting'] = 0.0
+        d_copy['correction'] = 0.0
+        d_copy['meal'] = 0.0
+        dummy_doses.append(d_copy)
+        
+    # We use a very low confidence threshold (0.20) to capture all potential drops
+    # regardless of whether the algorithm thinks it's a "perfect" match, because
+    # we know there WAS a dose here (we have ground truth).
+    candidates = detect_and_impute_missing_doses(readings, dummy_doses, min_confidence=0.20)
+    
+    ratios = []
+    for actual in actual_doses:
+        actual_t = actual['timestamp']
+        actual_val = float(actual['rapid_acting'])
+        
+        # Find closest candidate within 90 minutes
+        closest = None
+        min_diff = float('inf')
+        for c in candidates:
+            c_t = c['timestamp']
+            diff = abs((c_t - actual_t).total_seconds())
+            if diff < min_diff:
+                min_diff = diff
+                closest = c
+                
+        if closest and min_diff <= 5400: # 90 mins
+            # 'rapid_acting' contains the dose in the returned candidates dict
+            imputed_val = float(closest['rapid_acting']) 
+            if imputed_val > 0:
+                ratio = actual_val / imputed_val
+                ratios.append(ratio)
+                
+    if ratios:
+        # Calculate the median or average ratio. We'll use average.
+        avg_ratio = sum(ratios) / len(ratios)
+        # Clamp multiplier between 0.5x and 2.5x to prevent wild swings
+        return max(0.5, min(2.5, avg_ratio))
+        
+    return 1.0

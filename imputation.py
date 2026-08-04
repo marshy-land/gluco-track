@@ -11,6 +11,7 @@ import pytz
 
 from prediction import calculate_iob
 from ml_heuristics import load_heuristics_params, get_time_of_day_bucket
+import db
 
 
 def _safe_float(val, default=0.0):
@@ -51,6 +52,8 @@ def detect_and_impute_missing_doses(
     min_confidence = _safe_float(min_confidence, 0.50)
     if not glucose_readings or len(glucose_readings) < 4:
         return []
+        
+    calibration_multiplier = db.get_system_setting("imputation_calibration_factor", 1.0)
 
     # Pre-normalize timestamps to timezone-aware UTC datetimes
     norm_readings = []
@@ -194,6 +197,9 @@ def detect_and_impute_missing_doses(
 
             # Dose estimation = unexplained_drop / (ISF * f_act)
             raw_imputed_dose = unexplained_drop / (isf * f_act)
+            
+            # Apply empirical calibration multiplier learned from historical ground-truth
+            raw_imputed_dose *= calibration_multiplier
 
             # Clamp estimated dose to physiological range [1.0 U, 15.0 U] and round to nearest whole integer
             imputed_dose = max(1.0, min(15.0, float(math.floor(raw_imputed_dose + 0.5))))

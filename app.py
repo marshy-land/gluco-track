@@ -138,11 +138,24 @@ def api_predictions(
 def api_train_heuristics(days: int = Query(default=30, ge=7, le=90)):
     """Triggers the statistical machine learning model training job on the server."""
     try:
-        from ml_heuristics import train_predictive_model
+        from ml_heuristics import train_predictive_model, train_imputation_calibration
+        
+        # Train ISF modifiers
         success, msg = train_predictive_model(history_days=days)
         if not success:
             raise HTTPException(status_code=400, detail=msg)
+            
+        # Run Imputation Calibration
+        readings = db.get_history(days * 24)
+        doses = db.get_insulin_history(days * 24, include_imputed=False)
+        calib_factor = train_imputation_calibration(readings, doses)
+        
+        db.set_system_setting("imputation_calibration_factor", calib_factor)
+        
+        msg += f" Imputation calibration set to {calib_factor:.2f}x."
         return {"success": True, "message": msg}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
