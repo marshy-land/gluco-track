@@ -165,6 +165,31 @@ def api_log_insulin(dose: InsulinDoseLog):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
+@app.get("/api/shortcut/log")
+def api_shortcut_log(
+    units: float = Query(..., description="Units of insulin"),
+    type: str = Query(..., description="Type of insulin (rapid, long, meal, correction, change)")
+):
+    """Direct deep-link endpoint for Android App Actions / Shortcuts to log doses."""
+    dose_type = type.lower()
+    dose_dict = {
+        "timestamp": datetime.now(timezone.utc),
+        "rapid_acting": units if dose_type in ["rapid", "rapid_acting"] else 0.0,
+        "long_acting": units if dose_type in ["long", "long_acting", "basal"] else 0.0,
+        "meal": units if dose_type == "meal" else 0.0,
+        "correction": units if dose_type == "correction" else 0.0,
+        "user_change": units if dose_type in ["change", "user_change"] else 0.0,
+        "device": "Android App Action",
+        "serial_number": None
+    }
+    try:
+        inserted = insert_insulin_doses([dose_dict])
+        if inserted == 0:
+            return {"success": False, "message": "Dose entry already exists."}
+        return {"success": True, "message": f"Successfully logged {units}U of {dose_type} via Android Shortcut."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/glucose/stats")
 def api_stats(hours: int = Query(default=24, ge=1, le=720)):
     """Computes stats (average, GMI, Time-in-Range) for the last N hours."""
