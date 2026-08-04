@@ -63,7 +63,7 @@ def api_insulin_history(
             glucose_readings = get_history(hours + 4)
             raw_doses = get_insulin_history(hours + 4, include_imputed=False)
             
-            imputed = detect_and_impute_missing_doses(glucose_readings, raw_doses)
+            imputed = detect_and_impute_missing_doses(glucose_readings, raw_doses, min_confidence=0.85)
             
             existing_ts_set = {d['timestamp'] for d in doses}
             for imp in imputed:
