@@ -439,6 +439,10 @@
             // Poll for live data updates every 30 seconds
             setInterval(fetchLiveData, 30000);
             
+            // Prevent browser from opening dropped files globally
+            window.addEventListener('dragover', e => e.preventDefault(), false);
+            window.addEventListener('drop', e => e.preventDefault(), false);
+
             // Drag and drop events
             const dropzone = document.getElementById('dropzone');
             
