@@ -94,11 +94,17 @@ def api_predictions(
     predictions = predict_glucose(history)
     
     # We fetch recent insulin doses in the last 4 hours to compute IOB
-    recent_doses = get_insulin_history(4)
-    iob = calculate_iob(recent_doses)
+    recent_doses = get_insulin_history(4, include_imputed=True)
+    
+    confirmed_doses = [d for d in recent_doses if not d.get('is_imputed')]
+    estimated_doses = [d for d in recent_doses if d.get('is_imputed')]
+    
+    iob_confirmed = calculate_iob(confirmed_doses)
+    iob_estimated = calculate_iob(estimated_doses)
+    total_iob = iob_confirmed + iob_estimated
     
     # Estimate correction bolus using correct timestamp context
-    suggested = suggest_correction(latest['value'], iob, target_glucose=target, isf=isf, current_time=latest['timestamp'])
+    suggested = suggest_correction(latest['value'], total_iob, target_glucose=target, isf=isf, current_time=latest['timestamp'])
     
     # Resolve what ISF was actually used to display on UI
     used_isf = isf
@@ -118,7 +124,9 @@ def api_predictions(
         "current_glucose": latest['value'],
         "latest_reading": latest,
         "predictions": predictions,
-        "active_iob": iob,
+        "active_iob": iob_confirmed,
+        "active_iob_estimated": iob_estimated,
+        "total_iob": total_iob,
         "suggested_correction": suggested,
         "parameters": {
             "target_glucose": target,
