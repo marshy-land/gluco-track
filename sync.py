@@ -190,7 +190,7 @@ def run_sync(dry_run=False):
             for item in graph_data:
                 try:
                     val = float(item.get("Value"))
-                    ts_str = item.get("Timestamp")
+                    ts_str = item.get("FactoryTimestamp") or item.get("Timestamp")
                     utc_dt = parse_iso_timestamp(ts_str)
 
                     all_readings.append({
@@ -209,7 +209,7 @@ def run_sync(dry_run=False):
             if latest_meas:
                 try:
                     val = float(latest_meas.get("Value"))
-                    ts_str = latest_meas.get("Timestamp")
+                    ts_str = latest_meas.get("FactoryTimestamp") or latest_meas.get("Timestamp")
                     utc_dt = parse_iso_timestamp(ts_str)
 
                     all_readings.append({
