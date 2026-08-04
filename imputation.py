@@ -218,15 +218,15 @@ def detect_and_impute_missing_doses(
                 confidence_divisor = 2.5
 
             # Compute Confidence Score Components:
-            # 1. C_magnitude: proportional to unexplained drop magnitude (20 -> 0.0, 50+ -> 1.0)
-            c_magnitude = min(1.0, max(0.0, (unexplained_drop - 15.0) / 45.0))
+            # 1. C_magnitude: scale up to 150 mg/dL drop (20 -> 0.0, 150+ -> 1.0)
+            c_magnitude = min(1.0, max(0.0, (unexplained_drop - 20.0) / 130.0))
 
             # 2. C_shape: monotonicity ratio of glucose readings between i and j
             window_readings = sorted_readings[i:j+1]
             decreasing_steps = 0
             total_steps = max(1, len(window_readings) - 1)
             for k_idx in range(len(window_readings) - 1):
-                if window_readings[k_idx + 1]['value'] <= window_readings[k_idx]['value'] + 3.0:  # allow minor noise
+                if window_readings[k_idx + 1]['value'] <= window_readings[k_idx]['value'] + 5.0:  # allow minor noise
                     decreasing_steps += 1
             c_shape = decreasing_steps / total_steps
 
@@ -244,8 +244,29 @@ def detect_and_impute_missing_doses(
                         c_no_carb = 0.3
                         break
 
+            # 5. C_peak: Ensure t_start is actually a peak, not halfway down a cliff.
+            # Look back 45 mins. If any reading was significantly higher than g_start, penalize heavily.
+            c_peak = 1.0
+            for k in range(i - 1, -1, -1):
+                r_prev = sorted_readings[k]
+                t_prev = r_prev['timestamp']
+                if t_prev.tzinfo is None:
+                    t_prev = pytz.utc.localize(t_prev)
+                if (t_start - t_prev).total_seconds() > 2700:
+                    break
+                try:
+                    g_prev = float(r_prev['value'])
+                    if g_prev > g_start + 10.0:
+                        c_peak = 0.0  # It's halfway down a cliff!
+                        break
+                    elif g_prev > g_start:
+                        c_peak = 0.5  # Slight downward slope before t_start
+                except (ValueError, TypeError):
+                    continue
+
+            # Weightings updated to include c_peak
             confidence_score = round(
-                (0.35 * c_magnitude + 0.30 * c_shape + 0.20 * c_hyper + 0.15 * c_no_carb) / confidence_divisor,
+                (0.35 * c_magnitude + 0.20 * c_shape + 0.15 * c_hyper + 0.10 * c_no_carb + 0.20 * c_peak) / confidence_divisor,
                 2
             )
 
