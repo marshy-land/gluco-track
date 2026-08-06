@@ -4,7 +4,7 @@ import tempfile
 from datetime import datetime, timezone
 from typing import Optional
 from pydantic import BaseModel
-from fastapi import FastAPI, File, UploadFile, Query, HTTPException
+from fastapi import FastAPI, File, UploadFile, Query, HTTPException, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from parser import parse_libreview_csv
@@ -13,6 +13,42 @@ from db import get_latest_reading, get_history, get_statistics, insert_readings,
 from prediction import predict_glucose, calculate_iob, suggest_correction
 
 app = FastAPI(title="Gluco Track API", version="1.0.0")
+
+
+def check_and_run_training_background():
+    """Background worker that checks if the model needs training and runs it."""
+    try:
+        from ml_heuristics import train_predictive_model, train_imputation_calibration
+        
+        # Check last training time from db
+        saved = db.get_system_setting("heuristics_params")
+        if saved and isinstance(saved, dict):
+            stats = saved.get("training_stats")
+            if stats and "last_trained" in stats:
+                last_trained_str = stats["last_trained"]
+                try:
+                    last_trained = datetime.fromisoformat(last_trained_str)
+                    hours_since = (datetime.now(timezone.utc) - last_trained).total_seconds() / 3600
+                    if hours_since < 24.0:
+                        return # Too soon to retrain
+                except ValueError:
+                    pass
+                    
+        print("[Auto-Trainer] It has been >24h since last training. Running ML heuristics in background...")
+        # Run training
+        train_predictive_model(history_days=30)
+        
+        # Run Imputation Calibration
+        readings = db.get_history(30 * 24)
+        doses = db.get_insulin_history(30 * 24, include_imputed=False)
+        calib_factor = train_imputation_calibration(readings, doses)
+        
+        db.set_system_setting("imputation_calibration_factor", calib_factor)
+        print(f"[Auto-Trainer] Imputation calibration updated to {calib_factor:.2f}x.")
+        
+    except Exception as e:
+        print(f"[Auto-Trainer] Background training failed: {e}")
+
 
 # Serve visual dashboard on root route
 @app.get("/", response_class=HTMLResponse)
@@ -165,7 +201,7 @@ class FoodEntry(BaseModel):
     timestamp: datetime = None
 
 @app.post("/api/food/log")
-async def log_food(entry: FoodEntry):
+async def log_food(entry: FoodEntry, background_tasks: BackgroundTasks):
     ts = entry.timestamp if entry.timestamp else datetime.now(timezone.utc)
     try:
         inserted_id = db.insert_food_log(
@@ -173,6 +209,9 @@ async def log_food(entry: FoodEntry):
             timestamp=ts,
             food_type=entry.food_type
         )
+        
+        if background_tasks:
+            background_tasks.add_task(check_and_run_training_background)
         return {"status": "success", "id": inserted_id, "timestamp": ts.isoformat()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -229,7 +268,7 @@ class InsulinDoseLog(BaseModel):
     user_change: Optional[float] = None
 
 @app.post("/api/insulin/log")
-def api_log_insulin(dose: InsulinDoseLog):
+def api_log_insulin(dose: InsulinDoseLog, background_tasks: BackgroundTasks):
     """Logs a single insulin dose entry directly into the database."""
     ts = dose.timestamp or datetime.now(timezone.utc)
     
@@ -251,6 +290,9 @@ def api_log_insulin(dose: InsulinDoseLog):
         inserted = insert_insulin_doses([dose_dict])
         if inserted == 0:
             return {"message": "Dose entry already exists (duplicate ignored).", "inserted": 0}
+        
+        if background_tasks:
+            background_tasks.add_task(check_and_run_training_background)
         return {"message": "Insulin dose logged successfully.", "inserted": 1}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
@@ -258,7 +300,8 @@ def api_log_insulin(dose: InsulinDoseLog):
 @app.get("/api/shortcut/log")
 def api_shortcut_log(
     units: float = Query(..., description="Units of insulin"),
-    type: str = Query(..., description="Type of insulin (rapid, long, meal, correction, change)")
+    type: str = Query(..., description="Type of insulin (rapid, long, meal, correction, change)"),
+    background_tasks: BackgroundTasks = None
 ):
     """Direct deep-link endpoint for Android App Actions / Shortcuts to log doses."""
     dose_type = type.lower()
@@ -276,6 +319,9 @@ def api_shortcut_log(
         inserted = insert_insulin_doses([dose_dict])
         if inserted == 0:
             return {"success": False, "message": "Dose entry already exists."}
+        
+        if background_tasks:
+            background_tasks.add_task(check_and_run_training_background)
         return {"success": True, "message": f"Successfully logged {units}U of {dose_type} via Android Shortcut."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -289,7 +335,7 @@ def api_stats(hours: int = Query(default=24, ge=1, le=4320)):
     return stats
 
 @app.post("/api/glucose/upload")
-async def api_upload(file: UploadFile = File(...)):
+async def api_upload(file: UploadFile = File(...), background_tasks: BackgroundTasks = None):
     """Uploads a LibreView CSV export to backfill historical glucose data and insulin doses."""
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only CSV files are supported.")
