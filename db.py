@@ -55,6 +55,8 @@ def init_db():
                     try:
                         cur.execute("ALTER TABLE food_logs ADD COLUMN IF NOT EXISTS is_imputed BOOLEAN DEFAULT FALSE;")
                         cur.execute("ALTER TABLE food_logs ADD COLUMN IF NOT EXISTS confidence_score DOUBLE PRECISION;")
+                        cur.execute("ALTER TABLE insulin_doses ADD COLUMN IF NOT EXISTS synced_to_libreview BOOLEAN DEFAULT FALSE;")
+                        cur.execute("ALTER TABLE food_logs ADD COLUMN IF NOT EXISTS synced_to_libreview BOOLEAN DEFAULT FALSE;")
                     except psycopg2.errors.UndefinedTable:
                         pass # food_logs doesn't exist yet, that's fine, schema.sql creates it. Wait, schema_sql is executed before this.
                         
@@ -355,5 +357,44 @@ def set_system_setting(key, value):
     except Exception as e:
         conn.rollback()
         print(f"Error setting system setting {key}: {e}")
+    finally:
+        conn.close()
+
+
+def get_unsynced_events():
+    """Retrieves all non-imputed doses and food logs that haven't been synced to LibreView."""
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("""
+                SELECT id, timestamp, rapid_acting, long_acting, meal, correction, user_change, 'insulin' as event_type 
+                FROM insulin_doses 
+                WHERE is_imputed = FALSE AND synced_to_libreview = FALSE
+                UNION ALL
+                SELECT id, timestamp, NULL, NULL, carbs_g, NULL, NULL, 'food' as event_type
+                FROM food_logs
+                WHERE is_imputed = FALSE AND synced_to_libreview = FALSE
+                ORDER BY timestamp ASC
+            """)
+            return cur.fetchall()
+    except Exception as e:
+        print(f"Error fetching unsynced events: {e}")
+        return []
+    finally:
+        conn.close()
+
+def mark_event_synced(event_id, event_type):
+    """Marks an event as synced to LibreView."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            if event_type == 'insulin':
+                cur.execute("UPDATE insulin_doses SET synced_to_libreview = TRUE WHERE id = %s", (event_id,))
+            elif event_type == 'food':
+                cur.execute("UPDATE food_logs SET synced_to_libreview = TRUE WHERE id = %s", (event_id,))
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Error marking event synced: {e}")
     finally:
         conn.close()

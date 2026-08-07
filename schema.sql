@@ -72,3 +72,7 @@ CREATE TABLE IF NOT EXISTS system_settings (
     value JSONB NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Add synced_to_libreview column
+ALTER TABLE insulin_doses ADD COLUMN IF NOT EXISTS synced_to_libreview BOOLEAN DEFAULT FALSE;
+ALTER TABLE food_logs ADD COLUMN IF NOT EXISTS synced_to_libreview BOOLEAN DEFAULT FALSE;
