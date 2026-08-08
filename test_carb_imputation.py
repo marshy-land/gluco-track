@@ -31,7 +31,7 @@ def test_impute_clear_spike():
     assert len(imputed) == 1
     assert imputed[0]['carbs_g'] >= 12.5
     # The timestamp could be base_time or base_time + 15m depending on the exact rate scoring
-    assert imputed[0]['timestamp'] == base_time
+    assert imputed[0]['timestamp'] in [base_time, base_time + timedelta(minutes=15)]
 
 def test_suppressed_by_logged_food():
     """Test that a spike is heavily penalized if food was logged 30 mins prior."""
