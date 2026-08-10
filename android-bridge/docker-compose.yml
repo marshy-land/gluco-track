@@ -21,3 +21,11 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - REDROID_HOST=redroid:5555
     restart: always
+
+  scrcpy-web:
+    image: emptysuns/scrcpy-web:v0.1
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redroid
+    restart: always
