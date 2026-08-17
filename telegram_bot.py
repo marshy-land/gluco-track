@@ -12,7 +12,7 @@ load_dotenv()
 TELEGRAM_API_BASE = "https://api.telegram.org/bot"
 
 def get_telegram_config():
-    """Retrieves Telegram bot token and target chat ID."""
+    """Retrieves Telegram bot token and target chat/group ID."""
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
 
@@ -39,7 +39,7 @@ def save_telegram_config(bot_token, chat_id, enabled=True):
 
 def send_telegram_message(text, reply_markup=None, chat_id=None, parse_mode="HTML"):
     """
-    Sends a message via Telegram Bot API.
+    Sends a message via Telegram Bot API to a private user or group chat.
     """
     config = get_telegram_config()
     token = config.get("bot_token")
@@ -79,7 +79,7 @@ def answer_callback_query(callback_query_id, text=None):
         pass
 
 def edit_message_text(chat_id, message_id, text, reply_markup=None, parse_mode="HTML"):
-    """Updates the text of an existing Telegram message."""
+    """Updates the text of an existing Telegram message in private or group chat."""
     config = get_telegram_config()
     token = config.get("bot_token")
     if not token:
@@ -97,6 +97,19 @@ def edit_message_text(chat_id, message_id, text, reply_markup=None, parse_mode="
         requests.post(url, json=payload, timeout=8)
     except Exception:
         pass
+
+def get_user_display_name(from_dict):
+    """Formats a user's name for group transparency (e.g. 'John (@johndoe)')."""
+    if not from_dict:
+        return "a group member"
+    first = from_dict.get("first_name", "").strip()
+    last = from_dict.get("last_name", "").strip()
+    username = from_dict.get("username", "").strip()
+    
+    full_name = f"{first} {last}".strip() or "Care team member"
+    if username:
+        return f"{full_name} (@{username})"
+    return full_name
 
 def get_live_patient_summary():
     """Fetches live glucose, IOB, safe carbs, corrections, and predictions."""
@@ -143,7 +156,8 @@ def get_live_patient_summary():
 
 def handle_telegram_update(update):
     """
-    Main entrypoint for processing incoming Telegram Webhook updates.
+    Main entrypoint for processing incoming Telegram Webhook updates from both
+    direct private chats and shared care team group chats.
     """
     # 1. Handle Inline Button Clicks (Callback Queries)
     if "callback_query" in update:
@@ -152,6 +166,7 @@ def handle_telegram_update(update):
         cb_data = cb.get("data", "")
         chat_id = cb.get("message", {}).get("chat", {}).get("id")
         msg_id = cb.get("message", {}).get("message_id")
+        actor_name = get_user_display_name(cb.get("from"))
 
         # A. Log Lantus Scheduled Dose
         if cb_data.startswith("took_lantus:"):
@@ -164,7 +179,7 @@ def handle_telegram_update(update):
                 "meal": 0.0,
                 "correction": 0.0,
                 "user_change": 0.0,
-                "device": "Telegram Interactive Confirmation",
+                "device": f"Telegram ({actor_name})",
                 "serial_number": None
             }
             db.insert_insulin_doses([dose_dict])
@@ -173,13 +188,13 @@ def handle_telegram_update(update):
             # Clear pending follow-up for this dose
             db.set_system_setting("pending_compliance_check", None)
 
-            # Update message to show confirmation
+            # Update message in group to show confirmation and who logged it
             edit_message_text(
                 chat_id=chat_id,
                 message_id=msg_id,
                 text=(
                     f"<b>✅ Dose Confirmed & Logged</b>\n\n"
-                    f"Recorded <b>{units:.1f} U Lantus</b> into Gluco Track at {now.strftime('%I:%M %p')}.\n\n"
+                    f"<b>{actor_name}</b> confirmed <b>{units:.1f} U Lantus</b> into Gluco Track at {now.strftime('%I:%M %p')}.\n\n"
                     f"<i>Next scheduled dose: in 12 hours.</i>"
                 )
             )
@@ -196,7 +211,7 @@ def handle_telegram_update(update):
                 "meal": 0.0,
                 "correction": units,
                 "user_change": 0.0,
-                "device": "Telegram Interactive Confirmation",
+                "device": f"Telegram ({actor_name})",
                 "serial_number": None
             }
             db.insert_insulin_doses([dose_dict])
@@ -209,7 +224,7 @@ def handle_telegram_update(update):
                 message_id=msg_id,
                 text=(
                     f"<b>✅ Correction Confirmed & Logged</b>\n\n"
-                    f"Recorded <b>{units:.1f} U Rapid Correction</b> at {now.strftime('%I:%M %p')}.\n"
+                    f"<b>{actor_name}</b> logged <b>{units:.1f} U Rapid Correction</b> at {now.strftime('%I:%M %p')}.\n"
                     f"Active IOB is now updating in the predictive model."
                 )
             )
@@ -220,7 +235,6 @@ def handle_telegram_update(update):
             mins = int(cb_data.split(":")[1])
             answer_callback_query(cb_id, f"Snoozed for {mins} minutes.")
             
-            # Set pending reminder
             snooze_until = (datetime.now(timezone.utc) + timedelta(minutes=mins)).isoformat()
             pending = db.get_system_setting("pending_compliance_check") or {}
             pending["snooze_until"] = snooze_until
@@ -229,7 +243,7 @@ def handle_telegram_update(update):
             edit_message_text(
                 chat_id=chat_id,
                 message_id=msg_id,
-                text=f"<b>⏳ Reminder Snoozed</b>\n\nI will check back with you in {mins} minutes!"
+                text=f"<b>⏳ Reminder Snoozed by {actor_name}</b>\n\nI will check back with the group in {mins} minutes!"
             )
             return {"status": "ok", "action": "snoozed"}
 
@@ -240,43 +254,74 @@ def handle_telegram_update(update):
             edit_message_text(
                 chat_id=chat_id,
                 message_id=msg_id,
-                text="<b>❌ Dose Skipped</b>\n\nAcknowledged. Please monitor your blood sugar closely for any rising trends."
+                text=f"<b>❌ Dose Skipped (marked by {actor_name})</b>\n\nAcknowledged. Please monitor blood sugar closely for rising trends."
             )
             return {"status": "ok", "action": "skipped"}
 
         return {"status": "ok"}
 
-    # 2. Handle Text Messages & Conversational Commands
+    # 2. Handle Group Invitations / Bot Added to Group
+    if "message" in update and "new_chat_members" in update["message"]:
+        msg = update["message"]
+        chat = msg.get("chat", {})
+        chat_id = chat.get("id")
+        chat_title = chat.get("title") or "Care Circle Group"
+
+        config = get_telegram_config()
+        # Automatically register this group chat ID for broadcasts
+        save_telegram_config(config.get("bot_token") or "", chat_id)
+
+        welcome_text = (
+            f"🎉 <b>Hello {chat_title}!</b>\n\n"
+            f"I am your <b>Gluco Track Care Circle Assistant</b>. I have connected this group (ID: <code>{chat_id}</code>) to broadcast notifications to everyone here!\n\n"
+            f"<b>What I'll do in this group:</b>\n"
+            f"• 🌅 <b>6:00 AM & 🌇 6:00 PM:</b> Scheduled Lantus 13.0 U dose reminders\n"
+            f"• ⏱️ <b>15-Minute Follow-Ups:</b> If a dose hasn't been logged\n"
+            f"• ⚠️ <b>Proactive Alerts:</b> Early warnings >1h out for projected highs or lows\n"
+            f"• 💬 <b>Team Q&A:</b> Anyone here can type <code>/status</code>, <code>/carbs</code>, <code>/dose</code>, or ask food/glucose questions!\n\n"
+            f"<i>Tip: If BotFather group privacy is enabled, send <code>/setprivacy</code> -> <code>Disable</code> to @BotFather so I can answer questions without needing to be tagged every time.</i>"
+        )
+        send_telegram_message(welcome_text, chat_id=chat_id)
+        return {"status": "ok"}
+
+    # 3. Handle Text Messages & Conversational Commands
     if "message" in update and "text" in update["message"]:
         msg = update["message"]
-        chat_id = msg["chat"]["id"]
-        text = msg["text"].strip()
-        lower = text.lower()
+        chat = msg.get("chat", {})
+        chat_id = chat.get("id")
+        chat_type = chat.get("type", "private")
+        raw_text = msg["text"].strip()
 
-        # Update saved chat_id if not yet configured
+        # Strip bot mentions like /status@MyBot or @MyBot what is the bg?
+        clean_text = re.sub(r'@[A-Za-z0-9_]+bot', '', raw_text, flags=re.IGNORECASE).strip()
+        lower = clean_text.lower()
+
+        # Update saved chat_id if not yet configured, or if /setgroup is used
         config = get_telegram_config()
-        if not config.get("chat_id"):
+        if not config.get("chat_id") or lower.startswith("/setgroup"):
             save_telegram_config(config.get("bot_token") or "", chat_id)
 
         summary = get_live_patient_summary()
 
         # /start or /help
         if lower.startswith("/start") or lower.startswith("/help"):
+            is_group = chat_type in ["group", "supergroup"]
+            group_note = f"\n👥 <b>Connected Group:</b> <code>{chat_id}</code>\n" if is_group else ""
             reply = (
-                "👋 <b>Welcome to Gluco Track Assistant!</b>\n\n"
-                "I actively monitor your blood sugar trends, manage your Lantus dosing schedule, follow up on compliance, and answer food & correction questions.\n\n"
+                f"👋 <b>Welcome to Gluco Track Assistant!</b>{group_note}\n"
+                "I actively monitor blood sugar trends, manage the Lantus dosing schedule, follow up on compliance, and answer food & correction questions for the care circle.\n\n"
                 "<b>Quick Commands:</b>\n"
                 "📊 <code>/status</code> — Live glucose, trend, IOB, and trajectory\n"
                 "🍎 <code>/carbs</code> — Safe snack carb allowance & rescue carbs\n"
                 "💉 <code>/dose</code> — Correction & insulin recommendation\n"
                 "⏰ <code>/schedule</code> — Twice-daily Lantus (13U) schedule & countdown\n\n"
-                "<i>You can also ask me anything in plain English! (e.g. 'Can I eat an apple?', 'What's my BG?', 'How many carbs can I have?')</i>"
+                "<i>Anyone in this group can ask questions in plain English (e.g. 'Can they eat a banana?', 'What is current BG?', 'How many carbs are safe?')</i>"
             )
             send_telegram_message(reply, chat_id=chat_id)
             return {"status": "ok"}
 
         # /status or /bg
-        if lower.startswith("/status") or lower.startswith("/bg") or "what's my blood sugar" in lower or "what is my bg" in lower or "current reading" in lower:
+        if lower.startswith("/status") or lower.startswith("/bg") or "what's my blood sugar" in lower or "what is my bg" in lower or "what is the blood sugar" in lower or "what's the blood sugar" in lower or "current reading" in lower:
             if not summary:
                 send_telegram_message("⚠️ No live glucose data found in database. Make sure Libre sync is active.", chat_id=chat_id)
                 return {"status": "ok"}
@@ -304,7 +349,7 @@ def handle_telegram_update(update):
             return {"status": "ok"}
 
         # /carbs or questions about food/snacks
-        if lower.startswith("/carbs") or "can i eat" in lower or "snack" in lower or "carbs" in lower or "hungry" in lower or "apple" in lower or "banana" in lower or "food" in lower:
+        if lower.startswith("/carbs") or "can i eat" in lower or "can they eat" in lower or "snack" in lower or "carbs" in lower or "hungry" in lower or "apple" in lower or "banana" in lower or "food" in lower:
             if not summary:
                 send_telegram_message("⚠️ No live glucose data to calculate carb allowance.", chat_id=chat_id)
                 return {"status": "ok"}
@@ -317,19 +362,19 @@ def handle_telegram_update(update):
                 reply = (
                     f"🚨 <b>Rescue Carbs Required!</b>\n\n"
                     f"Current glucose is <b>{bg:.0f} mg/dL</b> with low trajectory.\n\n"
-                    f"👉 Please consume <b>~{int(sc['grams'])}g of fast-acting carbohydrates</b> (juice, glucose tabs, honey) immediately to raise and stabilize your blood sugar."
+                    f"👉 Please consume <b>~{int(sc['grams'])}g of fast-acting carbohydrates</b> (juice, glucose tabs, honey) immediately to raise and stabilize blood sugar."
                 )
             elif sc["type"] == "restricted":
                 reply = (
                     f"⚠️ <b>Elevated Glucose ({bg:.0f} mg/dL)</b>\n\n"
-                    f"Carb intake should be limited right now. Opt for zero or very low carb snacks (nuts, cheese, celery, water) until your level normalizes."
+                    f"Carb intake should be limited right now. Opt for zero or very low carb snacks (nuts, cheese, celery, water) until levels normalize."
                 )
             else:
                 reply = (
                     f"🍎 <b>Safe Carb Snack Allowance: ~{int(sc['grams'])}g</b>\n\n"
                     f"• <b>Current Glucose:</b> {bg:.0f} mg/dL ({bucket} window)\n"
                     f"• <b>Active Insulin (IOB):</b> {summary['iob']:.2f} U\n"
-                    f"• <b>Guidance:</b> You can safely enjoy a snack containing up to <b>{int(sc['grams'])}g of carbs</b> without experiencing a sharp spike over 160 mg/dL.\n\n"
+                    f"• <b>Guidance:</b> A snack containing up to <b>{int(sc['grams'])}g of carbs</b> can be enjoyed safely without spiking over 160 mg/dL.\n\n"
                     f"<i>{sc.get('explanation', '')}</i>"
                 )
             send_telegram_message(reply, chat_id=chat_id)
@@ -352,7 +397,7 @@ def handle_telegram_update(update):
                     f"• <b>Current Glucose:</b> {bg:.0f} mg/dL (Target: 120 mg/dL)\n"
                     f"• <b>Active IOB:</b> {iob:.2f} U (subtracted to prevent stacking)\n"
                     f"• <b>Current ISF:</b> 1U drops ~{isf:.0f} mg/dL\n\n"
-                    f"Take <b>{corr:.1f} U</b> rapid-acting insulin to bring your level back to target."
+                    f"Recommended: <b>{corr:.1f} U</b> rapid-acting insulin to bring level back to target."
                 )
                 keyboard = {
                     "inline_keyboard": [
@@ -364,13 +409,13 @@ def handle_telegram_update(update):
             else:
                 reply = (
                     f"🟢 <b>No Correction Needed (0.0 U)</b>\n\n"
-                    f"Current glucose is <b>{bg:.0f} mg/dL</b> with <b>{iob:.2f} U</b> active IOB. Your insulin coverage is sufficient."
+                    f"Current glucose is <b>{bg:.0f} mg/dL</b> with <b>{iob:.2f} U</b> active IOB. Insulin coverage is sufficient."
                 )
                 send_telegram_message(reply, chat_id=chat_id)
             return {"status": "ok"}
 
         # /schedule or /lantus
-        if lower.startswith("/schedule") or lower.startswith("/lantus") or "when is my next dose" in lower or "lantus" in lower:
+        if lower.startswith("/schedule") or lower.startswith("/lantus") or "when is the next dose" in lower or "when is my next dose" in lower or "lantus" in lower:
             if not summary:
                 send_telegram_message("⚠️ No schedule data available.", chat_id=chat_id)
                 return {"status": "ok"}
@@ -394,20 +439,24 @@ def handle_telegram_update(update):
             send_telegram_message(reply, reply_markup=keyboard, chat_id=chat_id)
             return {"status": "ok"}
 
-        # General conversational fallback
+        # In group chats, ignore arbitrary unrelated messages unless addressed to the bot or command
+        if chat_type in ["group", "supergroup"] and not (raw_text.startswith("/") or "@" in raw_text or any(k in lower for k in ["glucose", "sugar", "insulin", "lantus", "carb", "eat", "snack", "dose", "correction", "bg"])):
+            return {"status": "ignored"}
+
+        # Conversational fallback for direct mentions/questions
         if summary:
             bg = summary["glucose"]
             sc = summary["safe_carbs"]
             reply = (
-                f"I hear you! Here is your live summary:\n\n"
+                f"Here is the latest live summary for the care team:\n\n"
                 f"• <b>Blood Sugar:</b> {bg:.0f} mg/dL\n"
                 f"• <b>Safe Carb Intake:</b> {sc.get('label', 'Normal')}\n"
                 f"• <b>Active IOB:</b> {summary['iob']:.2f} U\n"
                 f"• <b>Next Lantus Dose:</b> {summary['lantus_schedule']['next_dose']['name']} ({summary['lantus_schedule']['next_dose']['countdown']})\n\n"
-                f"<i>Feel free to ask for <code>/carbs</code>, <code>/dose</code>, or <code>/status</code> anytime!</i>"
+                f"<i>Type <code>/status</code>, <code>/carbs</code>, <code>/dose</code>, or <code>/schedule</code> anytime!</i>"
             )
         else:
-            reply = "I'm your Gluco Track Assistant! Send /status to view your current metrics."
+            reply = "I'm your Gluco Track Assistant! Send /status to view current metrics."
         
         send_telegram_message(reply, chat_id=chat_id)
         return {"status": "ok"}
