@@ -4,7 +4,7 @@ import tempfile
 from datetime import datetime, timezone
 from typing import Optional
 from pydantic import BaseModel
-from fastapi import FastAPI, File, UploadFile, Query, HTTPException, BackgroundTasks
+from fastapi import FastAPI, File, UploadFile, Query, HTTPException, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from parser import parse_libreview_csv
@@ -611,4 +611,93 @@ def api_health_sleep(hours: int = Query(default=720, ge=1, le=4320)):
         if isinstance(s.get("created_at"), datetime):
             s["created_at"] = s["created_at"].isoformat()
     return sessions
+
+
+# --- Telegram Proactive Assistant Endpoints ---
+
+class TelegramConfigRequest(BaseModel):
+    bot_token: str
+    chat_id: str
+    enabled: bool = True
+
+@app.post("/api/telegram/config")
+def api_save_telegram_config(payload: TelegramConfigRequest):
+    """Saves Telegram Bot Token and Chat ID."""
+    try:
+        from telegram_bot import save_telegram_config
+        save_telegram_config(payload.bot_token, payload.chat_id, payload.enabled)
+        return {"success": True, "message": "Telegram Bot configuration saved."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/telegram/status")
+def api_telegram_status():
+    """Returns Telegram configuration status."""
+    try:
+        from telegram_bot import get_telegram_config
+        config = get_telegram_config()
+        stored = db.get_system_setting("telegram_config") or {}
+        return {
+            "is_configured": config.get("is_configured", False),
+            "chat_id": config.get("chat_id"),
+            "enabled": stored.get("enabled", True),
+            "has_token": bool(config.get("bot_token")),
+            "last_alert": db.get_system_setting("last_proactive_alert"),
+            "pending_compliance_check": db.get_system_setting("pending_compliance_check")
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/telegram/test")
+def api_send_telegram_test():
+    """Sends a test interactive message to verify Telegram Bot connectivity."""
+    try:
+        from telegram_bot import send_telegram_message, get_live_patient_summary
+        summary = get_live_patient_summary()
+        bg_text = f"{summary['glucose']:.0f} mg/dL" if summary else "110 mg/dL"
+
+        msg = (
+            "🚀 <b>Gluco Track Assistant Connected!</b>\n\n"
+            f"• <b>Current Glucose:</b> {bg_text}\n"
+            "• <b>Lantus Regimen:</b> Twice Daily (13.0 U @ 6 AM & 6 PM)\n"
+            "• <b>Compliance Checks:</b> Active (15–20m follow-ups)\n"
+            "• <b>Early Warning Interventions:</b> Active (>1 hour forecasts)\n\n"
+            "<i>Try clicking an action below or asking a question like 'Can I eat a snack?'</i>"
+        )
+        keyboard = {
+            "inline_keyboard": [
+                [{"text": "📊 Check Status", "callback_data": "check_status"}, {"text": "✓ Test Dose Log", "callback_data": "took_lantus:13.0"}]
+            ]
+        }
+        res = send_telegram_message(msg, reply_markup=keyboard)
+        if res.get("success"):
+            return {"success": True, "message": "Test message sent to Telegram successfully!"}
+        else:
+            raise HTTPException(status_code=400, detail=res.get("error", "Failed to send message via Telegram API."))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/telegram/webhook")
+async def api_telegram_webhook(request: Request = None):
+    """Processes incoming updates and button clicks from Telegram Webhook."""
+    try:
+        from telegram_bot import handle_telegram_update
+        data = await request.json()
+        result = handle_telegram_update(data)
+        return result or {"status": "ok"}
+    except Exception as e:
+        print(f"[TelegramWebhook] Error handling update: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.on_event("startup")
+def on_app_startup():
+    """Starts background Telegram proactive monitor on application boot."""
+    try:
+        from telegram_scheduler import start_telegram_scheduler
+        start_telegram_scheduler()
+    except Exception as e:
+        print(f"[AppStartup] Could not start Telegram scheduler: {e}")
 

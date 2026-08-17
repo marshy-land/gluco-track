@@ -737,6 +737,41 @@
                     <div id="gfit-status-msg" style="font-size: 0.75rem; text-align: center; color: var(--text-secondary);"></div>
                 </div>
             </div>
+
+            <!-- Telegram Proactive Companion -->
+            <div class="glass-panel" style="display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span style="font-size: 1.1rem;">🤖</span>
+                            <h3 class="chart-title" style="margin: 0;">Telegram Assistant</h3>
+                        </div>
+                        <span id="telegram-status-badge" style="font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 9999px; background: rgba(148,163,184,0.15); border: 1px solid rgba(148,163,184,0.3); color: var(--text-secondary);">Not Configured</span>
+                    </div>
+                    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+                        Proactive 6:00 AM/PM Lantus reminders, 15-minute compliance follow-ups, >1h early warning alerts, and conversational Q&A.
+                    </p>
+
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.8rem;">
+                        <div>
+                            <label style="color: var(--text-secondary); display: block; margin-bottom: 0.2rem; font-size: 0.75rem;">Bot Token (from @BotFather)</label>
+                            <input type="password" id="tg-bot-token" placeholder="123456789:ABCdefGhIJKlmNoPQRstu..." style="width: 100%; padding: 0.4rem 0.6rem; background: rgba(0,0,0,0.3); border: 1px solid var(--panel-border); border-radius: 6px; color: var(--text-primary); font-size: 0.8rem; box-sizing: border-box;">
+                        </div>
+                        <div>
+                            <label style="color: var(--text-secondary); display: block; margin-bottom: 0.2rem; font-size: 0.75rem;">Patient Telegram Chat ID</label>
+                            <input type="text" id="tg-chat-id" placeholder="e.g. 987654321" style="width: 100%; padding: 0.4rem 0.6rem; background: rgba(0,0,0,0.3); border: 1px solid var(--panel-border); border-radius: 6px; color: var(--text-primary); font-size: 0.8rem; box-sizing: border-box;">
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 1rem; border-top: 1px solid var(--panel-border); padding-top: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button onclick="handleSaveTelegramConfig()" style="flex: 1; background: rgba(255,255,255,0.08); color: var(--text-primary); border: 1px solid var(--panel-border); padding: 0.5rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.75rem;">Save Config</button>
+                        <button onclick="handleSendTelegramTest()" style="flex: 1.2; background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: white; border: none; padding: 0.5rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.75rem;">Send Test Alert</button>
+                    </div>
+                    <div id="tg-status-msg" style="font-size: 0.75rem; text-align: center; color: var(--text-secondary);"></div>
+                </div>
+            </div>
         </div>
 
         <!-- Sleep & Lifestyle Metabolic Insights Panel -->
@@ -910,6 +945,7 @@
             fetchHeuristicsStatus();
             fetchNutritionalImpact();
             fetchHealthStatus();
+            fetchTelegramStatus();
             // Poll for live data updates every 30 seconds
             setInterval(fetchLiveData, 30000);
             setInterval(fetchHealthStatus, 60000);
@@ -2086,6 +2122,100 @@
                 }
             } catch (err) {
                 console.warn('Sync trigger error:', err);
+            }
+        }
+
+        // --- Telegram Assistant Client Handlers ---
+
+        // Fetch and display Telegram status
+        async function fetchTelegramStatus() {
+            try {
+                const res = await fetch(`/api/telegram/status?_t=${Date.now()}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                const badge = document.getElementById('telegram-status-badge');
+                
+                if (badge) {
+                    if (data.is_configured) {
+                        badge.innerText = 'Connected & Active';
+                        badge.style.background = 'rgba(16,185,129,0.15)';
+                        badge.style.borderColor = 'rgba(16,185,129,0.3)';
+                        badge.style.color = '#10b981';
+                    } else {
+                        badge.innerText = 'Not Configured';
+                        badge.style.background = 'rgba(148,163,184,0.15)';
+                        badge.style.borderColor = 'rgba(148,163,184,0.3)';
+                        badge.style.color = 'var(--text-secondary)';
+                    }
+                }
+
+                if (data.chat_id) {
+                    const chatInput = document.getElementById('tg-chat-id');
+                    if (chatInput && !chatInput.value) {
+                        chatInput.value = data.chat_id;
+                    }
+                }
+            } catch (err) {
+                console.warn('Could not fetch Telegram status:', err);
+            }
+        }
+
+        // Save Telegram Bot Token and Chat ID
+        async function handleSaveTelegramConfig() {
+            const token = document.getElementById('tg-bot-token').value.trim();
+            const chatId = document.getElementById('tg-chat-id').value.trim();
+            const statusMsg = document.getElementById('tg-status-msg');
+
+            if (!token || !chatId) {
+                statusMsg.innerText = 'Please enter both Bot Token and Patient Chat ID.';
+                statusMsg.style.color = '#ef4444';
+                return;
+            }
+
+            statusMsg.innerText = 'Saving configuration...';
+            statusMsg.style.color = 'var(--text-secondary)';
+
+            try {
+                const res = await fetch('/api/telegram/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ bot_token: token, chat_id: chatId, enabled: true })
+                });
+                const result = await res.json();
+                if (res.ok) {
+                    statusMsg.innerText = 'Telegram configuration saved!';
+                    statusMsg.style.color = '#10b981';
+                    fetchTelegramStatus();
+                } else {
+                    statusMsg.innerText = `Error: ${result.detail || 'Failed to save'}`;
+                    statusMsg.style.color = '#ef4444';
+                }
+            } catch (err) {
+                statusMsg.innerText = `Network error: ${err.message}`;
+                statusMsg.style.color = '#ef4444';
+            }
+        }
+
+        // Send interactive test message
+        async function handleSendTelegramTest() {
+            const statusMsg = document.getElementById('tg-status-msg');
+            statusMsg.innerText = 'Sending test alert to Telegram...';
+            statusMsg.style.color = 'var(--text-secondary)';
+
+            try {
+                const res = await fetch('/api/telegram/test', { method: 'POST' });
+                const result = await res.json();
+                if (res.ok) {
+                    statusMsg.innerText = '✓ Test alert sent! Check your Telegram chat.';
+                    statusMsg.style.color = '#10b981';
+                    fetchTelegramStatus();
+                } else {
+                    statusMsg.innerText = `Failed: ${result.detail || 'Could not send test message'}`;
+                    statusMsg.style.color = '#ef4444';
+                }
+            } catch (err) {
+                statusMsg.innerText = `Error: ${err.message}`;
+                statusMsg.style.color = '#ef4444';
             }
         }
     </script>
