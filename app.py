@@ -260,14 +260,6 @@ async def log_food(entry: FoodEntry, background_tasks: BackgroundTasks):
         if background_tasks:
             background_tasks.add_task(check_and_run_training_background)
             
-        # Trigger emulator sync to LibreView
-        import subprocess
-        import sys
-        try:
-            subprocess.Popen([sys.executable, "sync_emulator.py", "--carbs", str(entry.carbs_g)])
-        except Exception as e:
-            print(f"Failed to trigger emulator sync: {e}")
-            
         return {"status": "success", "id": inserted_id, "timestamp": ts.isoformat()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -357,19 +349,6 @@ def api_log_insulin(dose: InsulinDoseLog, background_tasks: BackgroundTasks):
         if background_tasks:
             background_tasks.add_task(check_and_run_training_background)
             
-        # Trigger emulator sync to LibreView
-        import subprocess
-        import sys
-        
-        # Calculate total units (combining any specific fields that aren't None)
-        total_units = sum(filter(None, [dose.rapid_acting, dose.meal, dose.correction]))
-        
-        if total_units > 0:
-            try:
-                subprocess.Popen([sys.executable, "sync_emulator.py", "--insulin", str(total_units)])
-            except Exception as e:
-                print(f"Failed to trigger emulator sync: {e}")
-                
         return {"message": "Insulin dose logged successfully.", "inserted": 1}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
