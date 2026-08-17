@@ -8,6 +8,7 @@ import pytz
 import requests
 from dotenv import load_dotenv
 import db
+from nutrition_vision import estimate_carbohydrates_from_text, analyze_food_photo
 
 load_dotenv()
 
@@ -106,6 +107,26 @@ def edit_message_text(chat_id, message_id, text, reply_markup=None, parse_mode="
     except Exception:
         pass
 
+def download_telegram_photo(file_id):
+    """Downloads a photo sent in Telegram by its file_id."""
+    config = get_telegram_config()
+    token = config.get("bot_token")
+    if not token:
+        return None
+    url = f"{TELEGRAM_API_BASE}{token}/getFile?file_id={file_id}"
+    try:
+        res = requests.get(url, timeout=10)
+        if res.ok:
+            file_path = res.json().get("result", {}).get("file_path")
+            if file_path:
+                dl_url = f"https://api.telegram.org/file/bot{token}/{file_path}"
+                img_res = requests.get(dl_url, timeout=15)
+                if img_res.ok:
+                    return img_res.content
+    except Exception as e:
+        print(f"[TelegramBot] Error downloading photo: {e}")
+    return None
+
 def get_user_display_name(from_dict):
     """Formats a user's name for group transparency (e.g. 'John (@johndoe)')."""
     if not from_dict:
@@ -162,6 +183,28 @@ def get_live_patient_summary():
         print(f"[TelegramBot] Error getting live summary: {e}")
         return None
 
+def compute_meal_bolus(carbs_g, summary):
+    """Calculates suggested meal insulin bolus based on carbs, current BG, ISF, CSF, and IOB."""
+    if not summary or carbs_g <= 0:
+        return 0.0
+    
+    # 1. Insulin-to-Carb Ratio (ICR): grams of carbs covered by 1U of insulin = ISF / CSF
+    isf = summary.get("isf", 50.0)
+    csf = summary.get("csf", 4.0)
+    icr = max(isf / max(csf, 1.0), 8.0) # e.g. 50 / 4 = 12.5g per 1U
+    
+    carb_insulin = carbs_g / icr
+    
+    # 2. Add correction if BG > 120
+    bg = summary.get("glucose", 110.0)
+    correction = max(0.0, (bg - 120.0) / isf) if bg > 120.0 else 0.0
+    
+    # 3. Subtract active IOB
+    iob = summary.get("iob", 0.0)
+    net_bolus = max(0.0, carb_insulin + correction - iob)
+    
+    return round(net_bolus, 1)
+
 def handle_telegram_update(update):
     """
     Main entrypoint for processing incoming Telegram Webhook or Long-Polling updates.
@@ -176,8 +219,45 @@ def handle_telegram_update(update):
         actor_name = get_user_display_name(cb.get("from"))
         now_est = datetime.now(timezone.utc).astimezone(EST_TZ)
 
-        # A. Log Lantus Scheduled Dose (13U)
-        if cb_data.startswith("took_lantus:"):
+        # A. Log Meal & Optional Bolus (e.g. "log_meal:55.0:2.5")
+        if cb_data.startswith("log_meal:"):
+            parts = cb_data.split(":")
+            carbs = float(parts[1]) if len(parts) > 1 else 0.0
+            bolus = float(parts[2]) if len(parts) > 2 else 0.0
+            now_utc = datetime.now(timezone.utc)
+
+            # Insert food log
+            db.insert_food_log(carbs_g=carbs, timestamp=now_utc, food_type=f"Logged via Telegram ({actor_name})")
+
+            # Insert insulin bolus if > 0
+            if bolus > 0.0:
+                dose_dict = {
+                    "timestamp": now_utc,
+                    "rapid_acting": bolus,
+                    "long_acting": 0.0,
+                    "meal": bolus,
+                    "correction": 0.0,
+                    "user_change": 0.0,
+                    "device": f"Telegram Meal Bolus ({actor_name})",
+                    "serial_number": None
+                }
+                db.insert_insulin_doses([dose_dict])
+
+            answer_callback_query(cb_id, f"Logged {carbs:.0f}g carbs & {bolus:.1f}U bolus!")
+
+            bolus_text = f" and <b>{bolus:.1f} U Meal Bolus</b>" if bolus > 0 else ""
+            edit_message_text(
+                chat_id=chat_id,
+                message_id=msg_id,
+                text=(
+                    f"<b>✅ Meal Logged Successfully</b>\n\n"
+                    f"<b>{actor_name}</b> recorded <b>{carbs:.0f}g carbohydrates</b>{bolus_text} into Gluco Track at {now_est.strftime('%I:%M %p EST')}."
+                )
+            )
+            return {"status": "ok", "action": "meal_logged"}
+
+        # B. Log Lantus Scheduled Dose (13U)
+        elif cb_data.startswith("took_lantus:"):
             try:
                 units = float(cb_data.split(":")[1])
             except Exception:
@@ -197,10 +277,8 @@ def handle_telegram_update(update):
             db.insert_insulin_doses([dose_dict])
             answer_callback_query(cb_id, f"Logged {units}U Lantus!")
             
-            # Clear pending follow-up for this dose
             db.set_system_setting("pending_compliance_check", None)
 
-            # Update message in group/chat
             edit_message_text(
                 chat_id=chat_id,
                 message_id=msg_id,
@@ -212,7 +290,7 @@ def handle_telegram_update(update):
             )
             return {"status": "ok", "action": "lantus_logged"}
 
-        # B. Log Rapid / Correction Dose
+        # C. Log Rapid / Correction Dose
         elif cb_data.startswith("took_correction:"):
             try:
                 units = float(cb_data.split(":")[1])
@@ -246,7 +324,7 @@ def handle_telegram_update(update):
             )
             return {"status": "ok", "action": "correction_logged"}
 
-        # C. Snooze Reminder for 15 minutes
+        # D. Snooze Reminder for 15 minutes
         elif cb_data.startswith("snooze:"):
             try:
                 mins = int(cb_data.split(":")[1])
@@ -266,20 +344,72 @@ def handle_telegram_update(update):
             )
             return {"status": "ok", "action": "snoozed"}
 
-        # D. Skip Dose
-        elif cb_data == "skip_dose":
-            answer_callback_query(cb_id, "Dose skipped.")
+        # E. Skip / Dismiss
+        elif cb_data in ["skip_dose", "dismiss"]:
+            answer_callback_query(cb_id, "Dismissed.")
             db.set_system_setting("pending_compliance_check", None)
             edit_message_text(
                 chat_id=chat_id,
                 message_id=msg_id,
-                text=f"<b>❌ Dose Skipped (marked by {actor_name})</b>\n\nAcknowledged. Please monitor blood sugar closely for rising trends."
+                text=f"<b>❌ Action Dismissed by {actor_name}</b>"
             )
-            return {"status": "ok", "action": "skipped"}
+            return {"status": "ok", "action": "dismissed"}
 
         return {"status": "ok"}
 
-    # 2. Handle Group Invitations / Bot Added to Group
+    # 2. Handle Photo Message (Computer Vision Meal Carbohydrate Estimation)
+    if "message" in update and "photo" in update["message"]:
+        msg = update["message"]
+        chat = msg.get("chat", {})
+        chat_id = chat.get("id")
+        caption = msg.get("caption", "").strip()
+        photos = msg.get("photo", [])
+        
+        if photos:
+            # Highest resolution photo is the last item
+            best_photo = photos[-1]
+            file_id = best_photo.get("file_id")
+            
+            send_telegram_message("🔍 <i>Analyzing meal photo with Computer Vision AI...</i>", chat_id=chat_id)
+            
+            photo_bytes = download_telegram_photo(file_id)
+            if photo_bytes:
+                analysis = analyze_food_photo(photo_bytes, caption=caption)
+                summary = get_live_patient_summary()
+                carbs_g = analysis.get("carbs_g", 35.0)
+                bolus = compute_meal_bolus(carbs_g, summary)
+                
+                # Build items breakdown
+                items_str = ""
+                for it in analysis.get("items", []):
+                    items_str += f"• <b>{it.get('name', 'Item')}</b> ({it.get('quantity', '1 portion')}): ~{it.get('carbs_g', 0):.0f}g carbs\n"
+                
+                if not items_str:
+                    items_str = f"• {analysis.get('description', 'Meal components')}\n"
+
+                bg_str = f"{summary['glucose']:.0f} mg/dL" if summary else "110 mg/dL"
+                iob_str = f"{summary['iob']:.2f} U" if summary else "0.0 U"
+                
+                card_text = (
+                    f"📸 <b>Meal Vision Analysis Detected:</b>\n\n"
+                    f"{items_str}\n"
+                    f"📊 <b>Total Estimated Carbs: ~{carbs_g:.0f}g</b>\n\n"
+                    f"• <b>Current Glucose:</b> {bg_str}\n"
+                    f"• <b>Active Insulin (IOB):</b> {iob_str}\n"
+                    f"• <b>Recommended Bolus:</b> <b>{bolus:.1f} U</b>\n\n"
+                    f"<i>{analysis.get('note', '')}</i>"
+                )
+                
+                keyboard = {
+                    "inline_keyboard": [
+                        [{"text": f"✓ Log {carbs_g:.0f}g & Take {bolus:.1f}U Bolus", "callback_data": f"log_meal:{carbs_g:.1f}:{bolus:.1f}"}],
+                        [{"text": f"✓ Log {carbs_g:.0f}g Carbs Only (0U)", "callback_data": f"log_meal:{carbs_g:.1f}:0.0"}, {"text": "❌ Dismiss", "callback_data": "dismiss"}]
+                    ]
+                }
+                send_telegram_message(card_text, reply_markup=keyboard, chat_id=chat_id)
+                return {"status": "ok", "action": "photo_analyzed"}
+
+    # 3. Handle Group Invitations / Bot Added to Group
     if "message" in update and "new_chat_members" in update["message"]:
         msg = update["message"]
         chat = msg.get("chat", {})
@@ -287,23 +417,22 @@ def handle_telegram_update(update):
         chat_title = chat.get("title") or "Care Circle Group"
 
         config = get_telegram_config()
-        # Automatically register this group chat ID for broadcasts
         save_telegram_config(config.get("bot_token") or "", chat_id)
 
         welcome_text = (
             f"🎉 <b>Hello {chat_title}!</b>\n\n"
             f"I am your <b>Gluco Track Care Circle Assistant</b>. I have linked this group (ID: <code>{chat_id}</code>) to broadcast notifications to everyone here!\n\n"
             f"<b>What I will do for the care team:</b>\n"
+            f"• 📸 <b>Photo Food Logging:</b> Snap a photo of a meal to estimate carbs and get bolus advice\n"
             f"• 🌅 <b>6:00 AM EST & 🌇 6:00 PM EST:</b> Scheduled Lantus 13.0 U dose reminders\n"
             f"• ⏱️ <b>15-Minute Follow-Ups:</b> If a dose hasn't been logged in the database\n"
             f"• ⚠️ <b>Proactive Alerts:</b> Early warnings >1 hour out for projected highs or lows\n"
-            f"• 💬 <b>Team Q&A:</b> Anyone can ask questions or type <code>/status</code>, <code>/carbs</code>, <code>/dose</code>, <code>/schedule</code>!\n\n"
-            f"<i>Tip: If BotFather group privacy is enabled, send <code>/setprivacy</code> -> <code>Disable</code> to @BotFather so I can read messages without needing explicit @mentions.</i>"
+            f"• 💬 <b>Team Q&A:</b> Ask questions anytime (e.g. <i>'ate 2 slices of pizza'</i>, <code>/status</code>, <code>/carbs</code>)!"
         )
         send_telegram_message(welcome_text, chat_id=chat_id)
         return {"status": "ok"}
 
-    # 3. Handle Text Messages & Conversational Commands
+    # 4. Handle Text Messages, Food Logging & Conversational Commands
     if "message" in update and "text" in update["message"]:
         msg = update["message"]
         chat = msg.get("chat", {})
@@ -312,11 +441,9 @@ def handle_telegram_update(update):
         raw_text = msg.get("text", "").strip()
         sender_name = get_user_display_name(msg.get("from"))
 
-        # Strip bot mentions like /status@MyBot or @MyBot what is the bg?
         clean_text = re.sub(r'@[A-Za-z0-9_]+bot', '', raw_text, flags=re.IGNORECASE).strip()
         lower = clean_text.lower()
 
-        # Update saved chat_id if not yet configured, or if /setgroup is used
         config = get_telegram_config()
         if not config.get("chat_id") or lower.startswith("/setgroup") or lower.startswith("/link"):
             save_telegram_config(config.get("bot_token") or "", chat_id)
@@ -327,7 +454,44 @@ def handle_telegram_update(update):
         summary = get_live_patient_summary()
         now_est = datetime.now(timezone.utc).astimezone(EST_TZ)
 
-        # Direct Natural Language Dose Logging (e.g. "took 13u lantus", "logged 13u", "injected 4u rapid")
+        # A. Direct Text Food & Carbohydrate Logging (e.g. "ate 2 slices of bread and an egg", "having a bowl of oatmeal", "had pizza")
+        is_food_log = any(lower.startswith(k) for k in ["ate ", "had ", "eating ", "having ", "log meal ", "log food ", "food: ", "meal: "]) or \
+                      ("carbs" in lower and any(v in lower for v in ["ate", "had", "eating", "having", "taking", "log"]))
+
+        if is_food_log:
+            estimation = estimate_carbohydrates_from_text(clean_text)
+            carbs_g = estimation.get("carbs_g", 30.0)
+            bolus = compute_meal_bolus(carbs_g, summary)
+
+            items_str = ""
+            for it in estimation.get("items", []):
+                items_str += f"• <b>{it.get('name', 'Item')}</b> ({it.get('quantity', '1 serving')}): ~{it.get('carbs_g', 0):.0f}g carbs\n"
+            if not items_str:
+                items_str = f"• {estimation.get('description', clean_text)}\n"
+
+            bg_str = f"{summary['glucose']:.0f} mg/dL" if summary else "110 mg/dL"
+            iob_str = f"{summary['iob']:.2f} U" if summary else "0.0 U"
+
+            card_text = (
+                f"🍽️ <b>Meal Carbohydrate Estimate:</b>\n\n"
+                f"{items_str}\n"
+                f"📊 <b>Total Estimated Carbs: ~{carbs_g:.0f}g</b>\n\n"
+                f"• <b>Current Glucose:</b> {bg_str}\n"
+                f"• <b>Active Insulin (IOB):</b> {iob_str}\n"
+                f"• <b>Suggested Bolus:</b> <b>{bolus:.1f} U</b>\n\n"
+                f"<i>{estimation.get('note', '')}</i>"
+            )
+
+            keyboard = {
+                "inline_keyboard": [
+                    [{"text": f"✓ Log {carbs_g:.0f}g & {bolus:.1f}U Bolus", "callback_data": f"log_meal:{carbs_g:.1f}:{bolus:.1f}"}],
+                    [{"text": f"✓ Log {carbs_g:.0f}g Carbs Only", "callback_data": f"log_meal:{carbs_g:.1f}:0.0"}, {"text": "❌ Dismiss", "callback_data": "dismiss"}]
+                ]
+            }
+            send_telegram_message(card_text, reply_markup=keyboard, chat_id=chat_id)
+            return {"status": "ok"}
+
+        # B. Direct Natural Language Dose Logging (e.g. "took 13u lantus")
         lantus_match = re.search(r'(?:took|injected|logged|take|did)\s*(\d+(?:\.\d+)?)\s*(?:u|units)?\s*(?:of)?\s*lantus', lower) or \
                        re.search(r'lantus\s*(?:dose)?\s*(?:taken|logged|done|took)', lower)
         if lantus_match:
@@ -393,17 +557,14 @@ def handle_telegram_update(update):
             group_note = f"\n👥 <b>Connected Group:</b> <code>{chat_id}</code>\n" if is_group else ""
             reply = (
                 f"👋 <b>Welcome to Gluco Track Assistant!</b>{group_note}\n"
-                "I actively monitor blood sugar trends, manage the twice-daily Lantus schedule (6 AM & 6 PM EST), follow up on compliance, and answer food & correction questions.\n\n"
-                "<b>Quick Commands:</b>\n"
+                "I actively monitor blood sugar trends, estimate carbohydrates from meal photos & text, manage the twice-daily Lantus schedule (6 AM & 6 PM EST), and provide proactive early warnings.\n\n"
+                "<b>Features & Commands:</b>\n"
+                "📸 <b>Send a Photo:</b> Snap a meal photo to estimate carbs and get bolus advice\n"
+                "🍽️ <b>Food Text:</b> Type <i>'ate 2 slices toast and 1 banana'</i> to calculate carbs\n"
                 "📊 <code>/status</code> — Live glucose, trend, IOB, and trajectory\n"
                 "🍎 <code>/carbs</code> — Safe snack carb allowance & rescue carbs\n"
                 "💉 <code>/dose</code> — Correction & insulin recommendations\n"
-                "⏰ <code>/schedule</code> — Lantus (2x13U EST) schedule & countdown\n\n"
-                "<b>Natural Chat Examples:</b>\n"
-                "• <i>'What is the blood sugar right now?'</i>\n"
-                "• <i>'Can they eat a banana for a snack?'</i>\n"
-                "• <i>'Do we need a correction bolus?'</i>\n"
-                "• <i>'Took 13u lantus'</i> (automatically logs the dose!)"
+                "⏰ <code>/schedule</code> — Lantus (2x13U EST) schedule & countdown"
             )
             send_telegram_message(reply, chat_id=chat_id)
             return {"status": "ok"}
@@ -437,8 +598,8 @@ def handle_telegram_update(update):
             send_telegram_message(reply, chat_id=chat_id)
             return {"status": "ok"}
 
-        # /carbs or food questions
-        if lower.startswith("/carbs") or any(q in lower for q in ["can i eat", "can they eat", "snack", "carbs", "hungry", "apple", "banana", "bread", "toast", "pasta", "food", "eat", "meal"]):
+        # /carbs or questions about food/snacks
+        if lower.startswith("/carbs") or any(q in lower for q in ["can i eat", "can they eat", "snack", "hungry", "is it safe to eat"]):
             if not summary:
                 send_telegram_message("⚠️ No live glucose data to calculate carb allowance.", chat_id=chat_id)
                 return {"status": "ok"}
@@ -542,10 +703,10 @@ def handle_telegram_update(update):
                 f"• <b>Safe Carb Intake:</b> {sc.get('label', 'Normal')}\n"
                 f"• <b>Active IOB:</b> {summary['iob']:.2f} U\n"
                 f"• <b>Next Lantus Dose:</b> {summary['lantus_schedule']['next_dose']['name']} ({summary['lantus_schedule']['next_dose']['countdown']})\n\n"
-                f"<i>Type <code>/status</code>, <code>/carbs</code>, <code>/dose</code>, or <code>/schedule</code> anytime!</i>"
+                f"<i>Snap a meal photo, or type <code>/status</code>, <code>/carbs</code>, <code>/dose</code>, or <code>/schedule</code> anytime!</i>"
             )
         else:
-            reply = "I'm your Gluco Track Assistant! Send /status to view current metrics."
+            reply = "I'm your Gluco Track Assistant! Send /status to view current metrics or send a food photo to estimate carbs."
         
         send_telegram_message(reply, chat_id=chat_id)
         return {"status": "ok"}
@@ -604,7 +765,6 @@ def run_polling_worker():
             else:
                 time.sleep(3)
         except requests.exceptions.Timeout:
-            # Expected on idle long poll, continue immediately
             continue
         except Exception as e:
             time.sleep(3)

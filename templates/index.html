@@ -761,10 +761,14 @@
                             <label style="color: var(--text-secondary); display: block; margin-bottom: 0.2rem; font-size: 0.75rem;">Group or Patient Chat ID (e.g. -1001234567890)</label>
                             <input type="text" id="tg-chat-id" placeholder="Personal or Group Chat ID" style="width: 100%; padding: 0.4rem 0.6rem; background: rgba(0,0,0,0.3); border: 1px solid var(--panel-border); border-radius: 6px; color: var(--text-primary); font-size: 0.8rem; box-sizing: border-box;">
                         </div>
+                        <div>
+                            <label style="color: var(--text-secondary); display: block; margin-bottom: 0.2rem; font-size: 0.75rem;">Gemini Vision AI Key (Optional, for photo carb recognition)</label>
+                            <input type="password" id="tg-gemini-key" placeholder="AIzaSy..." style="width: 100%; padding: 0.4rem 0.6rem; background: rgba(0,0,0,0.3); border: 1px solid var(--panel-border); border-radius: 6px; color: var(--text-primary); font-size: 0.8rem; box-sizing: border-box;">
+                        </div>
                     </div>
                     
                     <div style="margin-top: 0.6rem; padding: 0.5rem 0.6rem; border-radius: 6px; background: rgba(2,132,199,0.08); border: 1px solid rgba(2,132,199,0.2); font-size: 0.75rem; color: #38bdf8; line-height: 1.3;">
-                        💡 <b>Group Setup:</b> Add your bot to your 3-person group, then type <code>/start</code> in the group — the bot will auto-link the group ID!
+                        💡 <b>Features:</b> Snap a photo of any meal or type <i>'ate 2 slices toast and eggs'</i> in chat to estimate carbs and calculate boluses!
                     </div>
                 </div>
 
@@ -2168,6 +2172,7 @@
         async function handleSaveTelegramConfig() {
             const token = document.getElementById('tg-bot-token').value.trim();
             const chatId = document.getElementById('tg-chat-id').value.trim();
+            const geminiKey = document.getElementById('tg-gemini-key') ? document.getElementById('tg-gemini-key').value.trim() : '';
             const statusMsg = document.getElementById('tg-status-msg');
 
             if (!token || !chatId) {
@@ -2183,7 +2188,7 @@
                 const res = await fetch('/api/telegram/config', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ bot_token: token, chat_id: chatId, enabled: true })
+                    body: JSON.stringify({ bot_token: token, chat_id: chatId, gemini_api_key: geminiKey, enabled: true })
                 });
                 const result = await res.json();
                 if (res.ok) {

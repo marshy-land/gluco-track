@@ -597,15 +597,18 @@ def api_health_sleep(hours: int = Query(default=720, ge=1, le=4320)):
 class TelegramConfigRequest(BaseModel):
     bot_token: str
     chat_id: str
+    gemini_api_key: Optional[str] = None
     enabled: bool = True
 
 @app.post("/api/telegram/config")
 def api_save_telegram_config(payload: TelegramConfigRequest):
-    """Saves Telegram Bot Token and Chat ID."""
+    """Saves Telegram Bot Token, Chat ID, and optional Gemini Vision API key."""
     try:
         from telegram_bot import save_telegram_config, start_telegram_polling
         from telegram_scheduler import start_telegram_scheduler
         save_telegram_config(payload.bot_token, payload.chat_id, payload.enabled)
+        if payload.gemini_api_key is not None:
+            db.set_system_setting("gemini_config", {"api_key": payload.gemini_api_key.strip()})
         start_telegram_polling()
         start_telegram_scheduler()
         return {"success": True, "message": "Telegram Bot configuration saved & poller active."}
