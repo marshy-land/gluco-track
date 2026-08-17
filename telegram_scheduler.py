@@ -3,15 +3,16 @@ import threading
 from datetime import datetime, timezone, timedelta
 import pytz
 import db
-from telegram_bot import send_telegram_message, get_live_patient_summary, get_telegram_config
+from telegram_bot import send_telegram_message, get_live_patient_summary, get_telegram_config, start_telegram_polling
 
 _scheduler_running = False
 _scheduler_thread = None
+EST_TZ = pytz.timezone("America/New_York")
 
 def check_and_send_scheduled_alerts():
     """
     Main periodic check function executed every 60 seconds:
-    1. 6:00 AM and 6:00 PM Lantus Dose Reminders
+    1. 6:00 AM EST and 6:00 PM EST Lantus Dose Reminders (13.0 U each)
     2. 15-20 min Compliance Check-Ins
     3. Proactive >1h Early Warning Trajectory Alerts
     """
@@ -23,32 +24,26 @@ def check_and_send_scheduled_alerts():
     if stored_cfg.get("enabled") is False:
         return
 
-    tz_str = db.get_system_setting("timezone") or "America/New_York"
-    try:
-        tz = pytz.timezone(tz_str)
-    except Exception:
-        tz = pytz.utc
-
     now_utc = datetime.now(timezone.utc)
-    now_local = now_utc.astimezone(tz)
-    today_date = now_local.date()
+    now_est = now_utc.astimezone(EST_TZ)
+    today_date = now_est.date()
 
     summary = get_live_patient_summary()
     if not summary:
         return
 
-    # --- 1. Twice-Daily Lantus Reminders (06:00 AM & 18:00 PM) ---
+    # --- 1. Twice-Daily Lantus Reminders (06:00 AM EST & 18:00 PM EST) ---
     ls = summary["lantus_schedule"]
     last_reminders = db.get_system_setting("last_lantus_reminders") or {}
     today_str = today_date.isoformat()
 
-    # Morning Window (06:00 - 06:15)
-    if now_local.hour == 6 and now_local.minute < 15 and not ls["morning"]["taken"]:
+    # Morning Window (06:00 AM EST - 06:20 AM EST)
+    if now_est.hour == 6 and now_est.minute < 20 and not ls["morning"]["taken"]:
         if last_reminders.get("morning_date") != today_str:
             bg_text = f"Current BG: <b>{summary['glucose']:.0f} mg/dL</b>"
             msg = (
-                f"🌅 <b>Morning Lantus Reminder (6:00 AM)</b>\n\n"
-                f"It's time for your scheduled <b>13.0 U Lantus</b> dose.\n"
+                f"🌅 <b>Morning Lantus Reminder (6:00 AM EST)</b>\n\n"
+                f"It's time for the scheduled <b>13.0 U Lantus</b> dose.\n"
                 f"{bg_text} • Active IOB: {summary['iob']:.2f} U\n\n"
                 f"<i>Please confirm once taken:</i>"
             )
@@ -70,13 +65,13 @@ def check_and_send_scheduled_alerts():
                 "due_at": (now_utc + timedelta(minutes=15)).isoformat()
             })
 
-    # Evening Window (18:00 - 18:15)
-    elif now_local.hour == 18 and now_local.minute < 15 and not ls["evening"]["taken"]:
+    # Evening Window (18:00 PM EST - 18:20 PM EST)
+    elif now_est.hour == 18 and now_est.minute < 20 and not ls["evening"]["taken"]:
         if last_reminders.get("evening_date") != today_str:
             bg_text = f"Current BG: <b>{summary['glucose']:.0f} mg/dL</b>"
             msg = (
-                f"🌇 <b>Evening Lantus Reminder (6:00 PM)</b>\n\n"
-                f"It's time for your scheduled <b>13.0 U Lantus</b> dose.\n"
+                f"🌇 <b>Evening Lantus Reminder (6:00 PM EST)</b>\n\n"
+                f"It's time for the scheduled <b>13.0 U Lantus</b> dose.\n"
                 f"{bg_text} • Active IOB: {summary['iob']:.2f} U\n\n"
                 f"<i>Please confirm once taken:</i>"
             )
@@ -124,8 +119,8 @@ def check_and_send_scheduled_alerts():
                         dose_type_label = "Morning 13.0 U Lantus" if "morning" in pending.get("type", "") else "Evening 13.0 U Lantus"
                         msg = (
                             f"👋 <b>Compliance Check-in (15m follow-up)</b>\n\n"
-                            f"Did you take your <b>{dose_type_label}</b> dose?\n\n"
-                            f"Staying consistent with your twice-daily basal schedule ensures smooth, continuous coverage."
+                            f"Did the patient take their <b>{dose_type_label}</b> dose?\n\n"
+                            f"Staying consistent with the twice-daily Eastern Time schedule (6 AM / 6 PM EST) ensures continuous 24-hour basal coverage."
                         )
                         keyboard = {
                             "inline_keyboard": [
@@ -135,7 +130,7 @@ def check_and_send_scheduled_alerts():
                         }
                         send_telegram_message(msg, reply_markup=keyboard)
 
-                    # Clear pending check so it doesn't fire repeatedly
+                    # Clear pending check so it doesn't loop
                     db.set_system_setting("pending_compliance_check", None)
             except Exception as e:
                 print(f"[TelegramScheduler] Error in compliance check: {e}")
@@ -159,16 +154,17 @@ def check_and_send_scheduled_alerts():
                 pass
 
         if send_alert:
+            time_str = now_est.strftime("%I:%M %p EST")
             if level == "warning_low":
                 msg = (
-                    f"⚠️ <b>{pa.get('badge', 'Proactive Low Warning')}</b>\n\n"
+                    f"⚠️ <b>{pa.get('badge', 'Proactive Low Warning')}</b> ({time_str})\n\n"
                     f"<b>Current Glucose:</b> {summary['glucose']:.0f} mg/dL ↘\n"
                     f"<b>Trajectory:</b> {pa.get('title', '')}\n\n"
                     f"👉 <b>{pa.get('message', '')}</b>"
                 )
             else:
                 msg = (
-                    f"⚠️ <b>{pa.get('badge', 'Proactive High Warning')}</b>\n\n"
+                    f"⚠️ <b>{pa.get('badge', 'Proactive High Warning')}</b> ({time_str})\n\n"
                     f"<b>Current Glucose:</b> {summary['glucose']:.0f} mg/dL ↗\n"
                     f"<b>Trajectory:</b> {pa.get('title', '')}\n\n"
                     f"👉 <b>{pa.get('message', '')}</b>"
@@ -184,7 +180,7 @@ def check_and_send_scheduled_alerts():
 def scheduler_worker_loop():
     """Background loop running every 60 seconds."""
     global _scheduler_running
-    print("[TelegramScheduler] Proactive background assistant started.")
+    print("[TelegramScheduler] Proactive background assistant started (Eastern Standard Time).")
     while _scheduler_running:
         try:
             check_and_send_scheduled_alerts()
@@ -193,8 +189,9 @@ def scheduler_worker_loop():
         time.sleep(60)
 
 def start_telegram_scheduler():
-    """Spawns the background scheduler daemon thread."""
+    """Spawns the background scheduler and polling daemon threads."""
     global _scheduler_running, _scheduler_thread
+    start_telegram_polling()
     if _scheduler_running:
         return
     _scheduler_running = True

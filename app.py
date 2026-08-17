@@ -624,9 +624,12 @@ class TelegramConfigRequest(BaseModel):
 def api_save_telegram_config(payload: TelegramConfigRequest):
     """Saves Telegram Bot Token and Chat ID."""
     try:
-        from telegram_bot import save_telegram_config
+        from telegram_bot import save_telegram_config, start_telegram_polling
+        from telegram_scheduler import start_telegram_scheduler
         save_telegram_config(payload.bot_token, payload.chat_id, payload.enabled)
-        return {"success": True, "message": "Telegram Bot configuration saved."}
+        start_telegram_polling()
+        start_telegram_scheduler()
+        return {"success": True, "message": "Telegram Bot configuration saved & poller active."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
