@@ -398,3 +398,204 @@ def mark_event_synced(event_id, event_type):
         print(f"Error marking event synced: {e}")
     finally:
         conn.close()
+
+
+def insert_health_sessions(sessions):
+    """
+    Inserts or updates a list of Google Health / Fit sessions (sleep, activity).
+    Each session dict: {
+        'session_id': str,
+        'start_time': datetime/ISO,
+        'end_time': datetime/ISO,
+        'session_type': str (e.g. 'sleep', 'sleep.deep', 'sleep.light', 'sleep.rem', 'activity'),
+        'session_name': str,
+        'duration_minutes': float
+    }
+    """
+    if not sessions:
+        return 0
+
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            query = """
+                INSERT INTO health_sessions (
+                    session_id, start_time, end_time, session_type, session_name, duration_minutes
+                ) VALUES %s
+                ON CONFLICT (session_id) DO UPDATE SET
+                    start_time = EXCLUDED.start_time,
+                    end_time = EXCLUDED.end_time,
+                    session_type = EXCLUDED.session_type,
+                    session_name = EXCLUDED.session_name,
+                    duration_minutes = EXCLUDED.duration_minutes
+            """
+            data = [
+                (
+                    s['session_id'],
+                    s['start_time'],
+                    s['end_time'],
+                    s.get('session_type', 'sleep'),
+                    s.get('session_name'),
+                    s.get('duration_minutes')
+                )
+                for s in sessions
+            ]
+            execute_values(cur, query, data)
+            count = len(sessions)
+        conn.commit()
+        return count
+    except Exception as e:
+        conn.rollback()
+        print(f"Error inserting health sessions: {e}")
+        return 0
+    finally:
+        conn.close()
+
+
+def get_health_sessions(limit_hours=720, session_type=None):
+    """Retrieves health sessions within the last limit_hours."""
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if session_type:
+                query = """
+                    SELECT id, session_id, start_time, end_time, session_type, session_name, duration_minutes, created_at
+                    FROM health_sessions
+                    WHERE start_time >= NOW() - INTERVAL %s AND session_type ILIKE %s
+                    ORDER BY start_time DESC
+                """
+                cur.execute(query, (f"{limit_hours} hours", f"{session_type}%"))
+            else:
+                query = """
+                    SELECT id, session_id, start_time, end_time, session_type, session_name, duration_minutes, created_at
+                    FROM health_sessions
+                    WHERE start_time >= NOW() - INTERVAL %s
+                    ORDER BY start_time DESC
+                """
+                cur.execute(query, (f"{limit_hours} hours",))
+            return cur.fetchall()
+    except Exception as e:
+        print(f"Error fetching health sessions: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def insert_health_metrics(metrics):
+    """
+    Inserts a list of health metrics (e.g. steps, heart_rate).
+    Each dict: {'timestamp': dt, 'metric_type': str, 'value': float}
+    """
+    if not metrics:
+        return 0
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            query = """
+                INSERT INTO health_metrics (timestamp, metric_type, value)
+                VALUES %s
+                ON CONFLICT (timestamp, metric_type) DO UPDATE SET
+                    value = EXCLUDED.value
+            """
+            data = [(m['timestamp'], m['metric_type'], float(m['value'])) for m in metrics]
+            execute_values(cur, query, data)
+            count = len(metrics)
+        conn.commit()
+        return count
+    except Exception as e:
+        conn.rollback()
+        print(f"Error inserting health metrics: {e}")
+        return 0
+    finally:
+        conn.close()
+
+
+def get_health_metrics(limit_hours=720, metric_type=None):
+    """Retrieves health metrics within the last limit_hours."""
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if metric_type:
+                query = """
+                    SELECT id, timestamp, metric_type, value
+                    FROM health_metrics
+                    WHERE timestamp >= NOW() - INTERVAL %s AND metric_type = %s
+                    ORDER BY timestamp ASC
+                """
+                cur.execute(query, (f"{limit_hours} hours", metric_type))
+            else:
+                query = """
+                    SELECT id, timestamp, metric_type, value
+                    FROM health_metrics
+                    WHERE timestamp >= NOW() - INTERVAL %s
+                    ORDER BY timestamp ASC
+                """
+                cur.execute(query, (f"{limit_hours} hours",))
+            return cur.fetchall()
+    except Exception as e:
+        print(f"Error fetching health metrics: {e}")
+        return []
+    finally:
+        conn.close()
+
+
+def get_recent_sleep_summary(hours=48):
+    """
+    Calculates summary of recent sleep from health_sessions:
+    - total duration in last 24h/48h
+    - most recent sleep start & end
+    - primary sleep vs nap sessions
+    - sleep deficit indicator
+    """
+    sessions = get_health_sessions(limit_hours=hours, session_type="sleep")
+    if not sessions:
+        return {
+            "has_data": False,
+            "total_sleep_hours_24h": 0.0,
+            "latest_session": None,
+            "sessions": [],
+            "sleep_quality_rating": "unknown",
+            "lifestyle_impact_note": "No Google Fit sleep data recorded yet."
+        }
+
+    total_minutes_24h = 0.0
+    now = datetime.now(timezone.utc)
+    for s in sessions:
+        st = s['start_time']
+        if isinstance(st, datetime) and st.tzinfo is None:
+            st = st.replace(tzinfo=timezone.utc)
+        dur = s.get('duration_minutes') or 0.0
+        if (now - st).total_seconds() <= 86400:
+            total_minutes_24h += dur
+
+    total_hours_24h = round(total_minutes_24h / 60.0, 1)
+    
+    # Assess sleep quality & impact on insulin sensitivity
+    if total_hours_24h >= 7.0:
+        quality = "Optimal"
+        impact_note = f"Well-rested ({total_hours_24h}h). Baseline insulin sensitivity intact."
+        isf_modifier = 1.0
+    elif total_hours_24h >= 5.5:
+        quality = "Moderate"
+        impact_note = f"Mild sleep reduction ({total_hours_24h}h). Slight insulin resistance possible."
+        isf_modifier = 1.05 # 5% higher BG rise / mild resistance
+    else:
+        quality = "Deficit"
+        impact_note = f"Sleep deficit ({total_hours_24h}h). Elevated cortisol/growth hormone may reduce insulin sensitivity ~10-15%."
+        isf_modifier = 1.12 # 12% resistance
+
+    return {
+        "has_data": True,
+        "total_sleep_hours_24h": total_hours_24h,
+        "isf_modifier": isf_modifier,
+        "sleep_quality_rating": quality,
+        "lifestyle_impact_note": impact_note,
+        "latest_session": {
+            "start": sessions[0]['start_time'].isoformat() if isinstance(sessions[0]['start_time'], datetime) else sessions[0]['start_time'],
+            "end": sessions[0]['end_time'].isoformat() if isinstance(sessions[0]['end_time'], datetime) else sessions[0]['end_time'],
+            "duration_minutes": sessions[0].get('duration_minutes', 0),
+            "type": sessions[0].get('session_type', 'sleep'),
+            "name": sessions[0].get('session_name', 'Sleep')
+        } if sessions else None,
+        "session_count": len(sessions)
+    }

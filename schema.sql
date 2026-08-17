@@ -66,13 +66,32 @@ CREATE TABLE IF NOT EXISTS system_settings (
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- System settings and persistent state (e.g. heuristics parameters)
-CREATE TABLE IF NOT EXISTS system_settings (
-    key VARCHAR(255) PRIMARY KEY,
-    value JSONB NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-);
-
 -- Add synced_to_libreview column
 ALTER TABLE insulin_doses ADD COLUMN IF NOT EXISTS synced_to_libreview BOOLEAN DEFAULT FALSE;
 ALTER TABLE food_logs ADD COLUMN IF NOT EXISTS synced_to_libreview BOOLEAN DEFAULT FALSE;
+
+-- Google Health / Fitness Data
+CREATE TABLE IF NOT EXISTS health_sessions (
+    id SERIAL PRIMARY KEY,
+    session_id VARCHAR(255) UNIQUE NOT NULL, -- Google Fit Session ID
+    start_time TIMESTAMPTZ NOT NULL,
+    end_time TIMESTAMPTZ NOT NULL,
+    session_type VARCHAR(100) NOT NULL, -- e.g., 'sleep', 'sleep.light', 'sleep.deep', 'activity'
+    session_name VARCHAR(255),
+    duration_minutes DOUBLE PRECISION,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_health_sessions_type ON health_sessions (session_type);
+CREATE INDEX IF NOT EXISTS idx_health_sessions_start ON health_sessions (start_time DESC);
+
+CREATE TABLE IF NOT EXISTS health_metrics (
+    id SERIAL PRIMARY KEY,
+    timestamp TIMESTAMPTZ NOT NULL,
+    metric_type VARCHAR(100) NOT NULL, -- e.g., 'steps', 'heart_rate.resting'
+    value DOUBLE PRECISION NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_health_metrics_unique ON health_metrics (timestamp, metric_type);
+CREATE INDEX IF NOT EXISTS idx_health_metrics_timestamp ON health_metrics (timestamp DESC);

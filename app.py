@@ -139,19 +139,61 @@ def api_predictions(
     iob_estimated = calculate_iob(estimated_doses)
     total_iob = iob_confirmed + iob_estimated
     
-    # Estimate correction bolus using correct timestamp context
-    suggested = suggest_correction(latest['value'], total_iob, target_glucose=target, isf=isf, current_time=latest['timestamp'])
+    # Estimate correction bolus or required carbs
+    from prediction import suggest_carbs, calculate_safe_carb_allowance, calculate_proactive_alert, get_lantus_schedule_status
     
-    # Resolve what ISF was actually used to display on UI
+    forecasted_30m = latest['value']
+    forecasted_60m = latest['value']
+    for p in predictions:
+        if p['minutes'] == 30:
+            forecasted_30m = p['value']
+        elif p['minutes'] == 60:
+            forecasted_60m = p['value']
+
+    # Resolve what ISF/CSF was actually used to display on UI
     used_isf = isf
+    used_csf = 4.0
     if used_isf is None:
         try:
             from ml_heuristics import load_heuristics_params, get_time_of_day_bucket
             params = load_heuristics_params()
             bucket = get_time_of_day_bucket(latest['timestamp'])
             used_isf = params.get("isf", {}).get(bucket, 50.0)
+            used_csf = params.get("csf", {}).get(bucket, 4.0)
         except Exception:
             used_isf = 50.0
+            used_csf = 4.0
+
+    suggested_insulin = suggest_correction(latest['value'], total_iob, target_glucose=target, isf=used_isf, current_time=latest['timestamp'])
+    suggested_carbohydrates = suggest_carbs(latest['value'], forecasted_30m, total_iob, target_glucose=100.0, current_time=latest['timestamp'])
+
+    # Safe carb allowance (either rescue carbs or safe snack allowance)
+    safe_carbs = calculate_safe_carb_allowance(
+        current_glucose=latest['value'],
+        forecasted_60m=forecasted_60m,
+        iob=total_iob,
+        isf=used_isf,
+        csf=used_csf,
+        upper_limit=160.0
+    )
+
+    # Proactive alert focusing on >1 hour out (60m, 90m, 120m)
+    proactive_alert = calculate_proactive_alert(
+        current_glucose=latest['value'],
+        predictions=predictions,
+        iob=total_iob,
+        isf=used_isf,
+        csf=used_csf
+    )
+
+    # Lantus twice-daily schedule status (13U @ 6 AM / 13U @ 6 PM)
+    lantus_status = get_lantus_schedule_status(timezone_str=os.getenv("LIBRE_TIMEZONE", "America/New_York"))
+
+    # Mutually exclusive actions: don't suggest insulin if we need carbs!
+    if suggested_carbohydrates > 0.0:
+        suggested_insulin = 0.0
+    elif suggested_insulin > 0.0:
+        suggested_carbohydrates = 0.0
 
     # Format times for JSON response
     latest['timestamp'] = latest['timestamp'].isoformat()
@@ -163,10 +205,15 @@ def api_predictions(
         "active_iob": iob_confirmed,
         "active_iob_estimated": iob_estimated,
         "total_iob": total_iob,
-        "suggested_correction": suggested,
+        "suggested_correction": suggested_insulin,
+        "suggested_carbs": suggested_carbohydrates,
+        "safe_carb_allowance": safe_carbs,
+        "proactive_alert": proactive_alert,
+        "lantus_schedule": lantus_status,
         "parameters": {
             "target_glucose": target,
-            "isf": used_isf
+            "isf": used_isf,
+            "csf": used_csf
         }
     }
 
@@ -263,6 +310,13 @@ def api_heuristics_status():
                 "night": 50.0,
                 "global": 50.0
             }),
+            "csf": params.get("csf", {
+                "morning": 4.0,
+                "afternoon": 4.0,
+                "evening": 4.0,
+                "night": 4.0,
+                "global": 4.0
+            }),
             "training_stats": params.get("training_stats")
         }
     except Exception as e:
@@ -349,6 +403,33 @@ def api_shortcut_log(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/insulin/log-lantus-dose")
+def api_log_lantus_scheduled_dose(
+    units: float = Query(default=13.0, description="Dose units (default 13.0)"),
+    background_tasks: BackgroundTasks = None
+):
+    """One-click endpoint to log the scheduled 13.0U Lantus dose (6 AM / 6 PM regimen)."""
+    now = datetime.now(timezone.utc)
+    dose_dict = {
+        "timestamp": now,
+        "rapid_acting": 0.0,
+        "long_acting": units,
+        "meal": 0.0,
+        "correction": 0.0,
+        "user_change": 0.0,
+        "device": "Scheduled Lantus Regimen (2x13U)",
+        "serial_number": None
+    }
+    try:
+        inserted = insert_insulin_doses([dose_dict])
+        if inserted == 0:
+            return {"success": True, "message": f"Lantus dose ({units}U) was already recorded for this time."}
+        if background_tasks:
+            background_tasks.add_task(check_and_run_training_background)
+        return {"success": True, "message": f"Successfully logged scheduled {units}U Lantus basal dose."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/glucose/stats")
 def api_stats(hours: int = Query(default=24, ge=1, le=4320)):
     """Computes stats (average, GMI, Time-in-Range) for the last N hours."""
@@ -414,4 +495,120 @@ def api_nutritional_impact(hours: int = Query(default=720, ge=1, le=4320)):
 def api_nutritional_impact_summary(hours: int = Query(default=720, ge=1, le=4320)):
     """Alias route for /api/nutritional-impact."""
     return api_nutritional_impact(hours=hours)
+
+
+# --- Google Health / Fitness Endpoints ---
+
+class GoogleCredentialsRequest(BaseModel):
+    client_id: str
+    client_secret: str
+
+@app.post("/api/health/credentials")
+def api_save_google_credentials(payload: GoogleCredentialsRequest):
+    """Saves the user's Google Cloud OAuth Client ID and Secret."""
+    try:
+        from google_fit_sync import save_google_credentials
+        save_google_credentials(payload.client_id, payload.client_secret)
+        return {"success": True, "message": "Google Cloud OAuth credentials saved."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/health/oauth/url")
+def api_google_oauth_url(redirect_uri: Optional[str] = None):
+    """Generates the Google OAuth 2.0 consent URL."""
+    try:
+        from google_fit_sync import get_authorization_url
+        target_redirect = redirect_uri or "http://137.184.96.172:8000/api/health/oauth/callback"
+        auth_url = get_authorization_url(target_redirect)
+        return {"success": True, "url": auth_url}
+    except Exception as e:
+        return JSONResponse(status_code=400, content={"success": False, "message": str(e)})
+
+@app.get("/api/health/oauth/callback")
+def api_google_oauth_callback(
+    code: Optional[str] = None,
+    error: Optional[str] = None,
+    background_tasks: BackgroundTasks = None
+):
+    """Handles OAuth 2.0 callback redirect from Google."""
+    if error:
+        return HTMLResponse(f"<h3>Google Authentication Failed</h3><p>{error}</p><a href='/'>Return to Dashboard</a>", status_code=400)
+    if not code:
+        raise HTTPException(status_code=400, detail="Missing authorization code.")
+
+    try:
+        from google_fit_sync import exchange_code_for_tokens, sync_all_google_fit
+        redirect_uri = "http://137.184.96.172:8000/api/health/oauth/callback"
+        exchange_code_for_tokens(code, redirect_uri)
+        
+        # Trigger immediate initial sync in background
+        if background_tasks:
+            background_tasks.add_task(sync_all_google_fit)
+        else:
+            try:
+                sync_all_google_fit()
+            except Exception as se:
+                print(f"Initial sync warning: {se}")
+
+        return HTMLResponse("""
+            <html>
+                <head>
+                    <meta http-equiv="refresh" content="2;url=/?google_fit_connected=1">
+                    <style>
+                        body { background: #0f172a; color: #f8fafc; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+                        .card { background: #1e293b; padding: 2rem; border-radius: 12px; border: 1px solid #334155; text-align: center; }
+                        h2 { color: #10b981; margin-top: 0; }
+                    </style>
+                </head>
+                <body>
+                    <div class="card">
+                        <h2>Google Health Connected!</h2>
+                        <p>Syncing your sleep and activity data... Redirecting to dashboard.</p>
+                    </div>
+                </body>
+            </html>
+        """)
+    except Exception as e:
+        return HTMLResponse(f"<h3>Google Fit Token Error</h3><p>{str(e)}</p><a href='/'>Return to Dashboard</a>", status_code=500)
+
+@app.get("/api/health/status")
+def api_health_status():
+    """Returns connection status, recent sleep summary, and sync status."""
+    try:
+        tokens = db.get_system_setting("google_fit_tokens")
+        connected = bool(tokens and isinstance(tokens, dict) and tokens.get("access_token"))
+        
+        last_sync = db.get_system_setting("google_fit_last_sync")
+        sleep_summary = db.get_recent_sleep_summary(hours=48)
+        
+        return {
+            "connected": connected,
+            "last_sync": last_sync,
+            "sleep_summary": sleep_summary
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/health/sync")
+def api_trigger_health_sync(background_tasks: BackgroundTasks):
+    """Triggers an on-demand sync with Google Fit."""
+    try:
+        from google_fit_sync import sync_all_google_fit
+        background_tasks.add_task(sync_all_google_fit)
+        return {"success": True, "message": "Google Fit sync started in background."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/health/sleep")
+def api_health_sleep(hours: int = Query(default=720, ge=1, le=4320)):
+    """Retrieves sleep sessions recorded from Google Fit."""
+    sessions = db.get_health_sessions(limit_hours=hours, session_type="sleep")
+    for s in sessions:
+        if isinstance(s.get("start_time"), datetime):
+            s["start_time"] = s["start_time"].isoformat()
+        if isinstance(s.get("end_time"), datetime):
+            s["end_time"] = s["end_time"].isoformat()
+        if isinstance(s.get("created_at"), datetime):
+            s["created_at"] = s["created_at"].isoformat()
+    return sessions
 

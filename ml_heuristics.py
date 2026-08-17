@@ -17,10 +17,19 @@ DEFAULT_ISFS = {
     "global": 50.0
 }
 
+DEFAULT_CSFS = {
+    "morning": 4.0,
+    "afternoon": 4.0,
+    "evening": 4.0,
+    "night": 4.0,
+    "global": 4.0
+}
+
 def load_heuristics_params():
     """Loads saved heuristics and ML model weights from the database."""
     default_params = {
         "isf": DEFAULT_ISFS.copy(),
+        "csf": DEFAULT_CSFS.copy(),
         "model_trained": False,
         "coefficients": None,
         "training_stats": None
@@ -221,6 +230,116 @@ def calculate_personalized_isf(hours_back=720, timezone_str="America/New_York"):
 
     return results
 
+def calculate_carb_sensitivity_factor(hours_back=720, timezone_str="America/New_York"):
+    """
+    Analyzes historical data to compute personalized time-of-day Carb Sensitivity Factors (CSF).
+    CSF represents how many mg/dL 1 gram of carbohydrate raises blood sugar.
+    """
+    try:
+        food_logs = db.get_food_history(limit_hours=hours_back, include_imputed=False)
+    except Exception:
+        food_logs = []
+    
+    try:
+        readings = db.get_history(hours_back + 4)
+    except Exception:
+        readings = []
+        
+    if not food_logs or not readings:
+        return DEFAULT_CSFS.copy()
+
+    parsed_readings = []
+    for r in readings:
+        if isinstance(r, dict) and 'timestamp' in r and r.get('value') is not None:
+            dt = parse_dt(r['timestamp'])
+            val = _safe_float(r['value'], None)
+            if dt is not None and val is not None:
+                parsed_readings.append({'timestamp': dt, 'value': val})
+
+    if not parsed_readings:
+        return DEFAULT_CSFS.copy()
+
+    readings = sorted(parsed_readings, key=lambda r: r['timestamp'])
+    
+    def find_nearest_reading(target_time, max_diff_mins=20):
+        best_r = None
+        best_diff = timedelta(minutes=max_diff_mins)
+        for r in readings:
+            diff = abs(r['timestamp'] - target_time)
+            if diff < best_diff:
+                best_diff = diff
+                best_r = r
+        return best_r
+
+    buckets = {
+        "morning": [],
+        "afternoon": [],
+        "evening": [],
+        "night": []
+    }
+
+    parsed_food = []
+    for f in food_logs:
+        if isinstance(f, dict) and 'timestamp' in f:
+            dt = parse_dt(f['timestamp'])
+            if dt is not None:
+                parsed_food.append({
+                    'timestamp': dt,
+                    'carbs_g': _safe_float(f.get("carbs_g"))
+                })
+
+    parsed_food = sorted(parsed_food, key=lambda f: f['timestamp'])
+
+    for food in parsed_food:
+        carbs = food['carbs_g']
+        if carbs < 5.0: # Ignore tiny snacks
+            continue
+
+        t_meal = food['timestamp']
+        g_start = find_nearest_reading(t_meal, max_diff_mins=15)
+        
+        if not g_start:
+            continue
+            
+        # Find peak reading in the next 3 hours
+        peak_val = None
+        for r in readings:
+            if r['timestamp'] > t_meal and (r['timestamp'] - t_meal).total_seconds() <= 10800:
+                if peak_val is None or r['value'] > peak_val:
+                    peak_val = r['value']
+                    
+        if peak_val is not None and g_start['value'] is not None:
+            delta_g = peak_val - g_start['value']
+            if delta_g > 10.0: # Ensure there was an actual rise
+                empirical_csf = delta_g / carbs
+                # Sanity check: 1g carb typically raises BG by 2-10 mg/dL
+                if 1.0 <= empirical_csf <= 15.0:
+                    bucket = get_time_of_day_bucket(t_meal, timezone_str)
+                    buckets[bucket].append(empirical_csf)
+
+    results = {}
+    all_empirical_csfs = []
+    
+    for bucket, values in buckets.items():
+        if len(values) >= 3:
+            avg_csf = sum(values) / len(values)
+            results[bucket] = round(avg_csf, 2)
+            all_empirical_csfs.extend(values)
+        else:
+            results[bucket] = None
+
+    if all_empirical_csfs:
+        global_avg = sum(all_empirical_csfs) / len(all_empirical_csfs)
+        results["global"] = round(global_avg, 2)
+    else:
+        results["global"] = 4.0
+
+    for bucket in ["morning", "afternoon", "evening", "night"]:
+        if results[bucket] is None:
+            results[bucket] = results["global"]
+
+    return results
+
 # Pure Python Matrix Helpers
 def transpose(A):
     return [list(x) for x in zip(*A)]
@@ -375,12 +494,13 @@ def train_predictive_model(history_days=30, timezone_str="America/New_York"):
         "history_days": history_days
     }
     
-    # Recalculate ISF as part of training cycle
+    # Recalculate ISF and CSF as part of training cycle
     params["isf"] = calculate_personalized_isf(history_days * 24, timezone_str)
+    params["csf"] = calculate_carb_sensitivity_factor(history_days * 24, timezone_str)
     
     save_heuristics_params(params)
     
-    return True, f"Successfully trained model on {len(X)} samples. Custom ISFs: Morning={params['isf']['morning']} U, Afternoon={params['isf']['afternoon']} U."
+    return True, f"Successfully trained model on {len(X)} samples. Custom ISFs: Morning={params['isf']['morning']} U. CSFs: Morning={params['csf']['morning']} mg/dL/g."
 
 def predict_adaptive_glucose(readings, iob_val, timezone_str="America/New_York"):
     """
@@ -458,6 +578,12 @@ def predict_adaptive_glucose(readings, iob_val, timezone_str="America/New_York")
     
     pred_60 = val_t_float + (pred_30 - val_t_float) * 1.7 # dampened double trend
     pred_60 = max(40.0, min(400.0, pred_60))
+
+    pred_90 = val_t_float + (pred_30 - val_t_float) * 2.2 # 90m dampened trend
+    pred_90 = max(40.0, min(400.0, pred_90))
+
+    pred_120 = val_t_float + (pred_30 - val_t_float) * 2.5 # 120m dampened trend
+    pred_120 = max(40.0, min(400.0, pred_120))
     
     # Calculate trend rate (mg/dL/min)
     trend_rate = (pred_30 - val_t_float) / 30.0
@@ -465,7 +591,9 @@ def predict_adaptive_glucose(readings, iob_val, timezone_str="America/New_York")
     return [
         {"minutes": 15, "value": round(pred_15, 1), "trend_rate": round(trend_rate, 2)},
         {"minutes": 30, "value": round(pred_30, 1), "trend_rate": round(trend_rate, 2)},
-        {"minutes": 60, "value": round(pred_60, 1), "trend_rate": round(trend_rate, 2)}
+        {"minutes": 60, "value": round(pred_60, 1), "trend_rate": round(trend_rate, 2)},
+        {"minutes": 90, "value": round(pred_90, 1), "trend_rate": round(trend_rate, 2)},
+        {"minutes": 120, "value": round(pred_120, 1), "trend_rate": round(trend_rate, 2)}
     ]
 
 FALLBACK_NUTRITIONAL_BUCKETS = {
@@ -701,10 +829,17 @@ def calculate_nutritional_impact_modifiers(readings=None, doses=None, hours_back
             f"Elevated evening carb sensitivity: Evening glucose rise is {pct}% higher than baseline. Moderating evening carbohydrate portions is recommended."
         )
 
-    aft_mod = final_time_buckets["Afternoon"]["modifier"]
-    recommendations.append(
-        f"Afternoon sensitivity is optimal ({aft_mod:.2f}x baseline multiplier). Best window for complex carbohydrate intake."
-    )
+    # Include Google Health Sleep & Circadian Insights if available
+    try:
+        sleep_summary = db.get_recent_sleep_summary(hours=48)
+        if sleep_summary and sleep_summary.get("has_data"):
+            total_sleep = sleep_summary.get("total_sleep_hours_24h", 0)
+            if total_sleep < 6.0:
+                recommendations.insert(0, f"🌙 Sleep Deficit Alert ({total_sleep}h in last 24h): Reduced sleep elevates morning cortisol and insulin resistance. Multipliers temporarily adjusted by +{(sleep_summary.get('isf_modifier', 1.1) - 1.0)*100:.0f}%.")
+            elif total_sleep >= 7.5:
+                recommendations.insert(0, f"✨ Optimal Sleep Logged ({total_sleep}h): Circadian alignment and insulin sensitivity are operating at peak efficiency.")
+    except Exception as e:
+        print(f"Sleep summary integration warning: {e}")
 
     return {
         "time_buckets": final_time_buckets,

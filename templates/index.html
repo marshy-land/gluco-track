@@ -356,8 +356,8 @@
             </div>
         </header>
 
-        <div class="top-row">
-            <!-- Current Status -->
+        <div class="top-row" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem;">
+            <!-- Current Glucose -->
             <div class="glass-panel live-card" id="live-panel">
                 <div class="live-label">Current Glucose</div>
                 <div class="live-value" id="current-val">--</div>
@@ -368,54 +368,87 @@
                 <div class="live-time" id="last-updated">Updating...</div>
             </div>
 
-            <!-- Predictive Insights -->
+            <!-- Instant Action: Safe Carbs & Correction Hub -->
             <div class="glass-panel" style="display: flex; flex-direction: column; justify-content: space-between; min-height: 250px;">
                 <div>
-                    <h3 class="chart-title" style="margin-bottom: 0.75rem;">Predictive Insights</h3>
-                    <div style="display: flex; flex-direction: column; gap: 0.6rem; font-size: 0.85rem;">
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 0.4rem;">
-                            <span style="color: var(--text-secondary);">Forecast (15m):</span>
-                            <span id="forecast-15" style="font-weight: 600;">--</span>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <h3 class="chart-title" style="margin: 0;">Live Action Hub</h3>
+                        <span id="action-hub-badge" style="font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 9999px; background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); color: #10b981;">In Target</span>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-bottom: 0.6rem;">
+                        <!-- Safe Carb Allowance -->
+                        <div id="card-safe-carbs" style="background: rgba(245, 158, 11, 0.06); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 10px; padding: 0.6rem;">
+                            <div style="font-size: 0.7rem; color: #f59e0b; font-weight: 600;" id="carb-box-title">Safe Carb Intake</div>
+                            <div style="font-size: 1.3rem; font-weight: 800; color: #f59e0b; font-family: 'Outfit', sans-serif;" id="carb-box-val">-- g</div>
+                            <div style="font-size: 0.65rem; color: var(--text-secondary); line-height: 1.2; margin-top: 0.2rem;" id="carb-box-sub">Snack allowance</div>
                         </div>
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 0.4rem;">
-                            <span style="color: var(--text-secondary);">Forecast (30m):</span>
-                            <span id="forecast-30" style="font-weight: 600;">--</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 0.4rem;">
-                            <span style="color: var(--text-secondary);">Forecast (60m):</span>
-                            <span id="forecast-60" style="font-weight: 600;">--</span>
+
+                        <!-- Necessary Correction -->
+                        <div id="card-correction" style="background: rgba(59, 130, 246, 0.06); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 10px; padding: 0.6rem;">
+                            <div style="font-size: 0.7rem; color: #3b82f6; font-weight: 600;">Correction Needed</div>
+                            <div style="font-size: 1.3rem; font-weight: 800; color: #3b82f6; font-family: 'Outfit', sans-serif;" id="correction-box-val">0.0 U</div>
+                            <div style="font-size: 0.65rem; color: var(--text-secondary); line-height: 1.2; margin-top: 0.2rem;" id="correction-box-sub">Target 120 mg/dL</div>
                         </div>
                     </div>
                 </div>
-                
-                <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem; border-top: 1px solid var(--panel-border); padding-top: 0.75rem;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">
-                        <span class="metric-title" style="font-size: 0.7rem;">Active Insulin (Confirmed)</span>
+
+                <div style="border-top: 1px solid var(--panel-border); padding-top: 0.5rem; display: flex; flex-direction: column; gap: 0.3rem;">
+                    <div style="display: flex; justify-content: space-between; font-size: 0.75rem;">
+                        <span style="color: var(--text-secondary);">Active IOB (Confirmed):</span>
                         <span id="iob-display" style="font-weight: 700; color: #f59e0b;">-- U</span>
                     </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                        <span class="metric-title" style="font-size: 0.7rem;">Active Insulin (Estimated)</span>
+                    <div style="display: flex; justify-content: space-between; font-size: 0.75rem;">
+                        <span style="color: var(--text-secondary);">Active IOB (Estimated):</span>
                         <span id="iob-est-display" style="font-weight: 700; color: #f59e0b; opacity: 0.8;">-- U</span>
                     </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(59, 130, 246, 0.05); padding: 0.4rem 0.6rem; border-radius: 8px; border: 1px solid rgba(59, 130, 246, 0.15);">
-                        <span class="metric-title" style="font-size: 0.7rem; color: var(--text-primary);">Bolus Suggestion (Estimated)</span>
-                        <span id="correction-display" style="font-weight: 800; color: #3b82f6; font-size: 1.1rem;">-- U</span>
+                </div>
+            </div>
+
+            <!-- Lantus Basal Regimen Card (Twice Daily: 13U @ 6 AM / 13U @ 6 PM) -->
+            <div class="glass-panel" style="display: flex; flex-direction: column; justify-content: space-between; min-height: 250px;">
+                <div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <h3 class="chart-title" style="margin: 0;">Lantus Basal (2x 13U)</h3>
+                        <span style="font-size: 0.7rem; font-weight: 700; color: var(--color-accent);">26 U / Day</span>
                     </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.8rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.35rem 0.5rem; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid rgba(255,255,255,0.03);">
+                            <span>🌅 Morning (6:00 AM) · 13.0 U</span>
+                            <span id="lantus-morn-badge" style="font-size: 0.7rem; font-weight: 600; padding: 0.1rem 0.4rem; border-radius: 6px; background: rgba(148,163,184,0.15); color: var(--text-secondary);">Pending</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.35rem 0.5rem; background: rgba(0,0,0,0.2); border-radius: 8px; border: 1px solid rgba(255,255,255,0.03);">
+                            <span>🌇 Evening (6:00 PM) · 13.0 U</span>
+                            <span id="lantus-eve-badge" style="font-size: 0.7rem; font-weight: 600; padding: 0.1rem 0.4rem; border-radius: 6px; background: rgba(148,163,184,0.15); color: var(--text-secondary);">Pending</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="border-top: 1px solid var(--panel-border); padding-top: 0.6rem; display: flex; flex-direction: column; gap: 0.4rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem;">
+                        <span id="lantus-next-title" style="color: var(--text-secondary);">Next Dose:</span>
+                        <span id="lantus-countdown" style="font-weight: 700; color: #38bdf8;">Calculating...</span>
+                    </div>
+                    <button onclick="handleLogLantusScheduled()" id="btn-log-lantus" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%); color: white; border: none; padding: 0.45rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.75rem; transition: opacity 0.2s;">
+                        Log 13U Lantus Dose Now
+                    </button>
+                    <div id="lantus-log-msg" style="font-size: 0.7rem; text-align: center; color: var(--text-secondary);"></div>
                 </div>
             </div>
 
             <!-- Core Statistics -->
             <div class="glass-panel" style="display: flex; flex-direction: column; justify-content: space-between;">
                 <div>
-                    <h3 class="chart-title" style="margin-bottom: 1rem;">Summary Metrics</h3>
+                    <h3 class="chart-title" style="margin-bottom: 0.75rem;">Summary Metrics</h3>
                     <div class="metrics-grid">
                         <div class="metric-card">
-                            <span class="metric-title">Average Glucose</span>
-                            <span class="metric-val" id="avg-val">-- <span style="font-size: 0.9rem; font-weight: 400; color: var(--text-secondary);">mg/dL</span></span>
+                            <span class="metric-title">Average</span>
+                            <span class="metric-val" id="avg-val">--</span>
                         </div>
                         <div class="metric-card">
-                            <span class="metric-title">Est. A1C (GMI)</span>
-                            <span class="metric-val" id="gmi-val">-- <span style="font-size: 0.9rem; font-weight: 400; color: var(--text-secondary);">%</span></span>
+                            <span class="metric-title">Est. A1C</span>
+                            <span class="metric-val" id="gmi-val">--</span>
                         </div>
                         <div class="metric-card" style="grid-column: span 2;">
                             <span class="metric-title">Time in Target (70-180)</span>
@@ -424,19 +457,52 @@
                     </div>
                 </div>
 
-                <div style="margin-top: 1.5rem;">
-                    <span class="metric-title">Time in Ranges</span>
+                <div style="margin-top: 0.5rem;">
                     <div class="tir-bar-container">
                         <div class="tir-segment tir-low" id="bar-low" style="width: 0%"></div>
                         <div class="tir-segment tir-target" id="bar-target" style="width: 0%"></div>
                         <div class="tir-segment tir-high" id="bar-high" style="width: 0%"></div>
                     </div>
-                    <div class="tir-legend">
-                        <div class="legend-item"><span class="legend-dot" style="background-color: var(--color-low)"></span> Low (<70) <span id="lbl-low">--</span></div>
+                    <div class="tir-legend" style="font-size: 0.7rem; margin-top: 0.35rem;">
+                        <div class="legend-item"><span class="legend-dot" style="background-color: var(--color-low)"></span> Low <span id="lbl-low">--</span></div>
                         <div class="legend-item"><span class="legend-dot" style="background-color: var(--color-target)"></span> Target <span id="lbl-target">--</span></div>
-                        <div class="legend-item"><span class="legend-dot" style="background-color: var(--color-high)"></span> High (>180) <span id="lbl-high">--</span></div>
+                        <div class="legend-item"><span class="legend-dot" style="background-color: var(--color-high)"></span> High <span id="lbl-high">--</span></div>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Proactive >1-Hour Early Warning Banner -->
+        <div class="glass-panel" id="proactive-alert-card" style="margin-top: 1.25rem; margin-bottom: 1.25rem; border-radius: 12px; padding: 1rem 1.25rem; background: rgba(59, 130, 246, 0.05); border: 1px solid rgba(59, 130, 246, 0.2); display: flex; flex-direction: column; gap: 0.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                    <span id="proactive-badge" style="font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 9999px; background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.3); color: #10b981;">
+                        🟢 Projected In-Range
+                    </span>
+                    <span id="proactive-title" style="font-weight: 700; font-size: 0.95rem; color: var(--text-primary);">
+                        Monitoring Forward Trajectory
+                    </span>
+                </div>
+                <div style="display: flex; gap: 0.75rem; font-size: 0.8rem; font-weight: 600;">
+                    <div style="background: rgba(0,0,0,0.25); padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid var(--panel-border);">
+                        <span style="color: var(--text-secondary);">+15m:</span> <span id="forecast-15">--</span>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.25); padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid var(--panel-border);">
+                        <span style="color: var(--text-secondary);">+30m:</span> <span id="forecast-30">--</span>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.25); padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid var(--panel-border);">
+                        <span style="color: var(--text-secondary);">+60m:</span> <span id="forecast-60">--</span>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.25); padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid var(--panel-border);">
+                        <span style="color: var(--text-secondary);">+90m:</span> <span id="forecast-90">--</span>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.25); padding: 0.25rem 0.6rem; border-radius: 6px; border: 1px solid var(--panel-border);">
+                        <span style="color: var(--text-secondary);">+120m:</span> <span id="forecast-120">--</span>
+                    </div>
+                </div>
+            </div>
+            <div id="proactive-msg" style="font-size: 0.85rem; color: var(--text-primary); line-height: 1.4;">
+                Projected blood sugar remains stable across the next 2+ hours.
             </div>
         </div>
 
@@ -603,25 +669,28 @@
                 <div>
                     <h3 class="chart-title" style="margin-bottom: 0.5rem;">Heuristics & Tuning</h3>
                     <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
-                        Dynamic Time-of-Day Insulin Sensitivity Factors (ISFs) calculated from your history.
+                        Dynamic Time-of-Day Insulin Sensitivity (ISF) and Carb Sensitivity (CSF) calculated from your history.
                     </p>
                     
                     <div style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.85rem; margin-bottom: 1rem;">
                         <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 0.35rem;">
-                            <span style="color: var(--text-secondary);">Morning ISF (04:00 - 11:00):</span>
-                            <span id="isf-morning" style="font-weight: 600; color: #ef4444;">--</span>
+                            <span style="color: var(--text-secondary);">Morning (04:00 - 11:00):</span>
+                            <span><span id="isf-morning" style="font-weight: 600; color: #3b82f6;">--</span> | <span id="csf-morning" style="font-weight: 600; color: #f59e0b;">--</span></span>
                         </div>
                         <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 0.35rem;">
-                            <span style="color: var(--text-secondary);">Afternoon ISF (11:00 - 17:00):</span>
-                            <span id="isf-afternoon" style="font-weight: 600; color: #f59e0b;">--</span>
+                            <span style="color: var(--text-secondary);">Afternoon (11:00 - 17:00):</span>
+                            <span><span id="isf-afternoon" style="font-weight: 600; color: #3b82f6;">--</span> | <span id="csf-afternoon" style="font-weight: 600; color: #f59e0b;">--</span></span>
                         </div>
                         <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 0.35rem;">
-                            <span style="color: var(--text-secondary);">Evening ISF (17:00 - 22:00):</span>
-                            <span id="isf-evening" style="font-weight: 600; color: #10b981;">--</span>
+                            <span style="color: var(--text-secondary);">Evening (17:00 - 22:00):</span>
+                            <span><span id="isf-evening" style="font-weight: 600; color: #3b82f6;">--</span> | <span id="csf-evening" style="font-weight: 600; color: #f59e0b;">--</span></span>
                         </div>
                         <div style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 0.35rem;">
-                            <span style="color: var(--text-secondary);">Night ISF (22:00 - 04:00):</span>
-                            <span id="isf-night" style="font-weight: 600; color: #3b82f6;">--</span>
+                            <span style="color: var(--text-secondary);">Night (22:00 - 04:00):</span>
+                            <span><span id="isf-night" style="font-weight: 600; color: #3b82f6;">--</span> | <span id="csf-night" style="font-weight: 600; color: #f59e0b;">--</span></span>
+                        </div>
+                        <div style="display: flex; justify-content: flex-end; font-size: 0.7rem; color: var(--text-secondary);">
+                            <span style="margin-right: 0.5rem;"><span style="color: #3b82f6;">Blue: ISF (mg/dL/U)</span> | <span style="color: #f59e0b;">Orange: CSF (mg/dL/g)</span></span>
                         </div>
                     </div>
                 </div>
@@ -633,6 +702,81 @@
                     </div>
                     <button onclick="handleTrainModel()" style="background: linear-gradient(135deg, #10b981 0%, #047857 100%); color: white; border: none; padding: 0.6rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.85rem; transition: opacity 0.2s;" onmouseover="this.style.opacity=0.9" onmouseout="this.style.opacity=1" id="train-btn">Retrain Model</button>
                     <div id="train-status" style="font-size: 0.75rem; text-align: center; color: var(--text-secondary); margin-top: 0.1rem;"></div>
+                </div>
+            </div>
+
+            <!-- Google Health / Fit Connection -->
+            <div class="glass-panel" style="display: flex; flex-direction: column; justify-content: space-between;">
+                <div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                        <h3 class="chart-title" style="margin: 0;">Google Health / Fit</h3>
+                        <span id="google-fit-badge" style="font-size: 0.7rem; font-weight: 600; padding: 0.15rem 0.5rem; border-radius: 9999px; background: rgba(148,163,184,0.15); border: 1px solid rgba(148,163,184,0.3); color: var(--text-secondary);">Not Connected</span>
+                    </div>
+                    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+                        Import sleep sessions, activity, and resting heart rate to automatically calibrate circadian multipliers.
+                    </p>
+
+                    <div style="display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.8rem;">
+                        <div>
+                            <label style="color: var(--text-secondary); display: block; margin-bottom: 0.2rem; font-size: 0.75rem;">OAuth Client ID</label>
+                            <input type="text" id="gfit-client-id" placeholder="xxxx.apps.googleusercontent.com" style="width: 100%; padding: 0.4rem 0.6rem; background: rgba(0,0,0,0.3); border: 1px solid var(--panel-border); border-radius: 6px; color: var(--text-primary); font-size: 0.8rem; box-sizing: border-box;">
+                        </div>
+                        <div>
+                            <label style="color: var(--text-secondary); display: block; margin-bottom: 0.2rem; font-size: 0.75rem;">OAuth Client Secret</label>
+                            <input type="password" id="gfit-client-secret" placeholder="GOCSPX-xxxx" style="width: 100%; padding: 0.4rem 0.6rem; background: rgba(0,0,0,0.3); border: 1px solid var(--panel-border); border-radius: 6px; color: var(--text-primary); font-size: 0.8rem; box-sizing: border-box;">
+                        </div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 1rem; border-top: 1px solid var(--panel-border); padding-top: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem;">
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button onclick="handleSaveGoogleCredentials()" style="flex: 1; background: rgba(255,255,255,0.08); color: var(--text-primary); border: 1px solid var(--panel-border); padding: 0.5rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.75rem;">Save Keys</button>
+                        <button onclick="handleConnectGoogleFit()" id="btn-connect-gfit" style="flex: 1.5; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: white; border: none; padding: 0.5rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.75rem;">Connect Google Fit</button>
+                    </div>
+                    <button onclick="handleSyncGoogleFit()" id="btn-sync-gfit" style="display: none; background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); padding: 0.5rem; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.75rem;">Sync Sleep & Health Data Now</button>
+                    <div id="gfit-status-msg" style="font-size: 0.75rem; text-align: center; color: var(--text-secondary);"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sleep & Lifestyle Metabolic Insights Panel -->
+        <div class="glass-panel" id="sleep-lifestyle-panel" style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <div style="width: 38px; height: 38px; border-radius: 10px; background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%); display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+                        🌙
+                    </div>
+                    <div>
+                        <h3 class="chart-title" style="margin: 0;">Sleep & Lifestyle Metabolic Calibration</h3>
+                        <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 0.15rem 0 0 0;">
+                            Automatic circadian and sleep duration calibration imported from Google Health.
+                        </p>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <span id="sleep-quality-badge" style="font-size: 0.75rem; font-weight: 600; padding: 0.25rem 0.75rem; border-radius: 9999px; background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.3); color: #3b82f6;">Checking Sync...</span>
+                    <button onclick="handleSyncGoogleFit()" style="background: rgba(255,255,255,0.06); border: 1px solid var(--panel-border); color: var(--text-primary); padding: 0.35rem 0.75rem; border-radius: 8px; font-size: 0.75rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.35rem;">
+                        <span>🔄</span> Sync Health
+                    </button>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); border-radius: 12px; padding: 0.85rem;">
+                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Total Sleep (Last 24h)</div>
+                    <div style="font-size: 1.8rem; font-weight: 800; color: #818cf8; font-family: 'Outfit', sans-serif;" id="sleep-total-hours">-- h</div>
+                    <div style="font-size: 0.7rem; color: var(--text-secondary);" id="sleep-session-count">0 sessions recorded</div>
+                </div>
+                <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); border-radius: 12px; padding: 0.85rem;">
+                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Most Recent Sleep Window</div>
+                    <div style="font-size: 1.1rem; font-weight: 700; color: var(--text-primary);" id="sleep-latest-window">-- : --</div>
+                    <div style="font-size: 0.7rem; color: var(--text-secondary);" id="sleep-latest-type">Waiting for Google Fit sync</div>
+                </div>
+                <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--panel-border); border-radius: 12px; padding: 0.85rem; grid-column: span 2;">
+                    <div style="font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 0.25rem;">Physiological Impact on Multipliers</div>
+                    <div style="font-size: 0.85rem; color: var(--text-primary); font-weight: 500; line-height: 1.4;" id="sleep-impact-note">
+                        Connect Google Fit in Advanced Settings to automatically calibrate insulin sensitivity based on real sleep sessions.
+                    </div>
                 </div>
             </div>
         </div>
@@ -765,8 +909,10 @@
             loadHistory(24);
             fetchHeuristicsStatus();
             fetchNutritionalImpact();
+            fetchHealthStatus();
             // Poll for live data updates every 30 seconds
             setInterval(fetchLiveData, 30000);
+            setInterval(fetchHealthStatus, 60000);
             
             // Set default local time for manual log
             const timeInput = document.getElementById('log-time');
@@ -1371,7 +1517,7 @@
             });
         }
 
-        // Fetch and display predictions
+        // Fetch and display predictions, safe carb allowance, proactive alerts, and Lantus schedule
         async function fetchPredictions() {
             try {
                 const res = await fetch(`/api/predictions?_t=${Date.now()}`);
@@ -1381,9 +1527,12 @@
                 const f15 = data.predictions.find(p => p.minutes === 15);
                 const f30 = data.predictions.find(p => p.minutes === 30);
                 const f60 = data.predictions.find(p => p.minutes === 60);
+                const f90 = data.predictions.find(p => p.minutes === 90);
+                const f120 = data.predictions.find(p => p.minutes === 120);
                 
                 const formatPrediction = (elemId, f) => {
                     const el = document.getElementById(elemId);
+                    if (!el) return;
                     if (!f) {
                         el.innerText = '--';
                         el.className = '';
@@ -1391,23 +1540,212 @@
                     }
                     el.innerText = `${Math.round(f.value)} mg/dL`;
                     el.className = ''; // reset
-                    if (f.value < 70) el.classList.add('state-low');
-                    else if (f.value > 180) el.classList.add('state-high');
-                    else el.classList.add('state-normal');
+                    if (f.value < 70) el.style.color = 'var(--color-low)';
+                    else if (f.value > 180) el.style.color = 'var(--color-high)';
+                    else el.style.color = 'var(--color-target)';
                 };
                 
                 formatPrediction('forecast-15', f15);
                 formatPrediction('forecast-30', f30);
                 formatPrediction('forecast-60', f60);
+                formatPrediction('forecast-90', f90);
+                formatPrediction('forecast-120', f120);
                 
+                // Active Insulin
                 document.getElementById('iob-display').innerText = `${data.active_iob} U`;
                 document.getElementById('iob-est-display').innerText = `${data.active_iob_estimated} U`;
-                document.getElementById('correction-display').innerText = `${data.suggested_correction} U`;
+                
+                // 1. Safe Carb Intake / Allowance
+                const sc = data.safe_carb_allowance;
+                const carbValEl = document.getElementById('carb-box-val');
+                const carbTitleEl = document.getElementById('carb-box-title');
+                const carbSubEl = document.getElementById('carb-box-sub');
+                const cardSafeCarbs = document.getElementById('card-safe-carbs');
+
+                if (sc && carbValEl) {
+                    if (sc.type === 'rescue') {
+                        carbTitleEl.innerText = 'Rescue Carbs Needed';
+                        carbTitleEl.style.color = '#ef4444';
+                        carbValEl.innerText = `Eat ~${Math.round(sc.grams)}g`;
+                        carbValEl.style.color = '#ef4444';
+                        carbSubEl.innerText = sc.explanation;
+                        cardSafeCarbs.style.background = 'rgba(239, 68, 68, 0.1)';
+                        cardSafeCarbs.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                    } else if (sc.type === 'restricted') {
+                        carbTitleEl.innerText = 'Carb Intake';
+                        carbTitleEl.style.color = '#f59e0b';
+                        carbValEl.innerText = '0g (Elevated)';
+                        carbValEl.style.color = '#f59e0b';
+                        carbSubEl.innerText = sc.explanation;
+                        cardSafeCarbs.style.background = 'rgba(245, 158, 11, 0.06)';
+                        cardSafeCarbs.style.borderColor = 'rgba(245, 158, 11, 0.2)';
+                    } else {
+                        carbTitleEl.innerText = 'Safe Snack Allowance';
+                        carbTitleEl.style.color = '#10b981';
+                        carbValEl.innerText = `Up to ~${Math.round(sc.grams)}g`;
+                        carbValEl.style.color = '#10b981';
+                        carbSubEl.innerText = sc.explanation;
+                        cardSafeCarbs.style.background = 'rgba(16, 185, 129, 0.06)';
+                        cardSafeCarbs.style.borderColor = 'rgba(16, 185, 129, 0.2)';
+                    }
+                }
+
+                // 2. Necessary Correction
+                const correctionValEl = document.getElementById('correction-box-val');
+                const correctionSubEl = document.getElementById('correction-box-sub');
+                const cardCorrection = document.getElementById('card-correction');
+                const insulinNeeded = data.suggested_correction || 0.0;
+
+                if (correctionValEl) {
+                    if (insulinNeeded > 0.0) {
+                        correctionValEl.innerText = `${insulinNeeded.toFixed(1)} U`;
+                        correctionValEl.style.color = '#3b82f6';
+                        correctionSubEl.innerText = `Correction bolus for current ${Math.round(data.current_glucose)} mg/dL`;
+                        cardCorrection.style.background = 'rgba(59, 130, 246, 0.1)';
+                        cardCorrection.style.borderColor = 'rgba(59, 130, 246, 0.3)';
+                    } else {
+                        correctionValEl.innerText = '0.0 U';
+                        correctionValEl.style.color = '#10b981';
+                        correctionSubEl.innerText = 'In Target / Covered by IOB';
+                        cardCorrection.style.background = 'rgba(16, 185, 129, 0.06)';
+                        cardCorrection.style.borderColor = 'rgba(16, 185, 129, 0.2)';
+                    }
+                }
+
+                // Action Hub Badge
+                const hubBadge = document.getElementById('action-hub-badge');
+                if (hubBadge) {
+                    if (sc && sc.type === 'rescue') {
+                        hubBadge.innerText = 'Carbs Needed';
+                        hubBadge.style.background = 'rgba(239,68,68,0.15)';
+                        hubBadge.style.borderColor = 'rgba(239,68,68,0.3)';
+                        hubBadge.style.color = '#ef4444';
+                    } else if (insulinNeeded > 0.0) {
+                        hubBadge.innerText = 'Correction Needed';
+                        hubBadge.style.background = 'rgba(59,130,246,0.15)';
+                        hubBadge.style.borderColor = 'rgba(59,130,246,0.3)';
+                        hubBadge.style.color = '#3b82f6';
+                    } else {
+                        hubBadge.innerText = 'In Target';
+                        hubBadge.style.background = 'rgba(16,185,129,0.15)';
+                        hubBadge.style.borderColor = 'rgba(16,185,129,0.3)';
+                        hubBadge.style.color = '#10b981';
+                    }
+                }
+
+                // 3. Proactive >1-Hour Early Warning Alert
+                const pa = data.proactive_alert;
+                const paCard = document.getElementById('proactive-alert-card');
+                const paBadge = document.getElementById('proactive-badge');
+                const paTitle = document.getElementById('proactive-title');
+                const paMsg = document.getElementById('proactive-msg');
+
+                if (pa && paCard) {
+                    paTitle.innerText = pa.title || 'Forward Trajectory';
+                    paMsg.innerText = pa.message || '';
+                    if (pa.level === 'warning_low') {
+                        paBadge.innerText = pa.badge || '⚠️ Proactive Low Warning';
+                        paBadge.style.background = 'rgba(239, 68, 68, 0.15)';
+                        paBadge.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+                        paBadge.style.color = '#ef4444';
+                        paCard.style.background = 'rgba(239, 68, 68, 0.06)';
+                        paCard.style.borderColor = 'rgba(239, 68, 68, 0.25)';
+                    } else if (pa.level === 'warning_high') {
+                        paBadge.innerText = pa.badge || '⚠️ Proactive High Warning';
+                        paBadge.style.background = 'rgba(245, 158, 11, 0.15)';
+                        paBadge.style.borderColor = 'rgba(245, 158, 11, 0.3)';
+                        paBadge.style.color = '#f59e0b';
+                        paCard.style.background = 'rgba(245, 158, 11, 0.06)';
+                        paCard.style.borderColor = 'rgba(245, 158, 11, 0.25)';
+                    } else {
+                        paBadge.innerText = pa.badge || '🟢 Projected In-Range';
+                        paBadge.style.background = 'rgba(16, 185, 129, 0.15)';
+                        paBadge.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+                        paBadge.style.color = '#10b981';
+                        paCard.style.background = 'rgba(16, 185, 129, 0.05)';
+                        paCard.style.borderColor = 'rgba(16, 185, 129, 0.2)';
+                    }
+                }
+
+                // 4. Lantus Regimen Status (2x 13U: 6 AM / 6 PM)
+                const ls = data.lantus_schedule;
+                if (ls) {
+                    const mornBadge = document.getElementById('lantus-morn-badge');
+                    const eveBadge = document.getElementById('lantus-eve-badge');
+                    const nextCountdown = document.getElementById('lantus-countdown');
+                    const nextTitle = document.getElementById('lantus-next-title');
+
+                    if (mornBadge) {
+                        if (ls.morning.taken) {
+                            mornBadge.innerText = '✓ Taken';
+                            mornBadge.style.background = 'rgba(16,185,129,0.15)';
+                            mornBadge.style.color = '#10b981';
+                        } else {
+                            mornBadge.innerText = 'Pending';
+                            mornBadge.style.background = 'rgba(148,163,184,0.15)';
+                            mornBadge.style.color = 'var(--text-secondary)';
+                        }
+                    }
+
+                    if (eveBadge) {
+                        if (ls.evening.taken) {
+                            eveBadge.innerText = '✓ Taken';
+                            eveBadge.style.background = 'rgba(16,185,129,0.15)';
+                            eveBadge.style.color = '#10b981';
+                        } else {
+                            eveBadge.innerText = 'Pending';
+                            eveBadge.style.background = 'rgba(148,163,184,0.15)';
+                            eveBadge.style.color = 'var(--text-secondary)';
+                        }
+                    }
+
+                    if (nextCountdown && ls.next_dose) {
+                        nextTitle.innerText = `${ls.next_dose.name}:`;
+                        nextCountdown.innerText = ls.next_dose.countdown;
+                        if (ls.next_dose.status === 'overdue') {
+                            nextCountdown.style.color = '#ef4444';
+                        } else {
+                            nextCountdown.style.color = '#38bdf8';
+                        }
+                    }
+                }
                 
                 return data.predictions;
             } catch (err) {
                 console.warn("Could not fetch predictions:", err);
                 return [];
+            }
+        }
+
+        // Quick log scheduled 13U Lantus dose
+        async function handleLogLantusScheduled() {
+            const btn = document.getElementById('btn-log-lantus');
+            const msg = document.getElementById('lantus-log-msg');
+            btn.disabled = true;
+            btn.style.opacity = 0.6;
+            msg.innerText = 'Logging 13.0 U Lantus dose...';
+            msg.style.color = 'var(--text-secondary)';
+
+            try {
+                const res = await fetch('/api/insulin/log-lantus-dose?units=13.0', { method: 'POST' });
+                const result = await res.json();
+                if (res.ok) {
+                    msg.innerText = result.message || '13.0 U Lantus logged successfully!';
+                    msg.style.color = '#10b981';
+                    setTimeout(() => {
+                        fetchPredictions();
+                        loadHistory(24);
+                    }, 1500);
+                } else {
+                    msg.innerText = `Error: ${result.detail || 'Failed to log dose'}`;
+                    msg.style.color = '#ef4444';
+                }
+            } catch (err) {
+                msg.innerText = `Error: ${err.message}`;
+                msg.style.color = '#ef4444';
+            } finally {
+                btn.disabled = false;
+                btn.style.opacity = 1;
             }
         }
 
@@ -1481,17 +1819,25 @@
 
         // Duplicate handleLogFood removed
 
-        // Fetch and display diagnostics and time-of-day ISFs
+        // Fetch model status and heuristics
         async function fetchHeuristicsStatus() {
             try {
-                const res = await fetch('/api/heuristics/status');
-                if (!res.ok) throw new Error();
+                const res = await fetch(`/api/heuristics/status?_t=${Date.now()}`);
                 const data = await res.json();
                 
-                document.getElementById('isf-morning').innerText = `${data.isf.morning} U`;
-                document.getElementById('isf-afternoon').innerText = `${data.isf.afternoon} U`;
-                document.getElementById('isf-evening').innerText = `${data.isf.evening} U`;
-                document.getElementById('isf-night').innerText = `${data.isf.night} U`;
+                if (data.isf) {
+                    document.getElementById('isf-morning').innerText = `${data.isf.morning} U`;
+                    document.getElementById('isf-afternoon').innerText = `${data.isf.afternoon} U`;
+                    document.getElementById('isf-evening').innerText = `${data.isf.evening} U`;
+                    document.getElementById('isf-night').innerText = `${data.isf.night} U`;
+                }
+                
+                if (data.csf) {
+                    document.getElementById('csf-morning').innerText = `${data.csf.morning} g`;
+                    document.getElementById('csf-afternoon').innerText = `${data.csf.afternoon} g`;
+                    document.getElementById('csf-evening').innerText = `${data.csf.evening} g`;
+                    document.getElementById('csf-night').innerText = `${data.csf.night} g`;
+                }
                 
                 const statusEl = document.getElementById('model-status-text');
                 if (data.model_trained && data.training_stats) {
@@ -1595,6 +1941,151 @@
                 }
             } catch (err) {
                 console.warn("Could not fetch nutritional impact data:", err);
+            }
+        }
+
+        // Fetch Google Health / Fit Connection Status & Sleep Summary
+        async function fetchHealthStatus() {
+            try {
+                const res = await fetch(`/api/health/status?_t=${Date.now()}`);
+                if (!res.ok) throw new Error('Status failed');
+                const data = await res.json();
+
+                const badge = document.getElementById('google-fit-badge');
+                const btnConnect = document.getElementById('btn-connect-gfit');
+                const btnSync = document.getElementById('btn-sync-gfit');
+                const sleepBadge = document.getElementById('sleep-quality-badge');
+
+                if (data.connected) {
+                    badge.innerText = 'Connected';
+                    badge.style.background = 'rgba(16,185,129,0.15)';
+                    badge.style.borderColor = 'rgba(16,185,129,0.3)';
+                    badge.style.color = '#10b981';
+
+                    btnConnect.innerText = 'Reconnect Google Fit';
+                    btnConnect.style.background = 'rgba(255,255,255,0.08)';
+                    btnConnect.style.border = '1px solid var(--panel-border)';
+                    btnSync.style.display = 'block';
+
+                    sleepBadge.innerText = 'Google Fit Synced';
+                    sleepBadge.style.background = 'rgba(16,185,129,0.15)';
+                    sleepBadge.style.borderColor = 'rgba(16,185,129,0.3)';
+                    sleepBadge.style.color = '#10b981';
+                } else {
+                    badge.innerText = 'Not Connected';
+                    badge.style.background = 'rgba(148,163,184,0.15)';
+                    badge.style.borderColor = 'rgba(148,163,184,0.3)';
+                    badge.style.color = 'var(--text-secondary)';
+
+                    btnSync.style.display = 'none';
+                    sleepBadge.innerText = 'Not Connected';
+                    sleepBadge.style.background = 'rgba(245,158,11,0.15)';
+                    sleepBadge.style.borderColor = 'rgba(245,158,11,0.3)';
+                    sleepBadge.style.color = '#f59e0b';
+                }
+
+                // Sleep summary data
+                const s = data.sleep_summary;
+                if (s && s.has_data) {
+                    document.getElementById('sleep-total-hours').innerText = `${s.total_sleep_hours_24h} h`;
+                    document.getElementById('sleep-session-count').innerText = `${s.session_count} session(s) in last 48h`;
+                    
+                    if (s.latest_session) {
+                        const start = new Date(s.latest_session.start);
+                        const end = new Date(s.latest_session.end);
+                        const formatTime = d => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        document.getElementById('sleep-latest-window').innerText = `${formatTime(start)} – ${formatTime(end)}`;
+                        document.getElementById('sleep-latest-type').innerText = `${s.latest_session.duration_minutes} min (${s.latest_session.name || s.latest_session.type})`;
+                    }
+                    
+                    document.getElementById('sleep-impact-note').innerText = s.lifestyle_impact_note;
+                } else if (!data.connected) {
+                    document.getElementById('sleep-total-hours').innerText = '-- h';
+                    document.getElementById('sleep-session-count').innerText = '0 sessions recorded';
+                    document.getElementById('sleep-latest-window').innerText = 'Not Connected';
+                    document.getElementById('sleep-latest-type').innerText = 'Requires Google Cloud Client ID & Secret';
+                    document.getElementById('sleep-impact-note').innerText = 'Configure your Google Cloud OAuth credentials in Advanced Settings below to import real sleep & lifestyle metrics.';
+                }
+            } catch (err) {
+                console.warn('Could not fetch health status:', err);
+            }
+        }
+
+        // Save Google OAuth Client ID & Secret
+        async function handleSaveGoogleCredentials() {
+            const clientId = document.getElementById('gfit-client-id').value.trim();
+            const clientSecret = document.getElementById('gfit-client-secret').value.trim();
+            const statusMsg = document.getElementById('gfit-status-msg');
+
+            if (!clientId || !clientSecret) {
+                statusMsg.innerText = 'Please enter both Client ID and Client Secret.';
+                statusMsg.style.color = '#ef4444';
+                return;
+            }
+
+            statusMsg.innerText = 'Saving credentials...';
+            statusMsg.style.color = 'var(--text-secondary)';
+
+            try {
+                const res = await fetch('/api/health/credentials', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ client_id: clientId, client_secret: clientSecret })
+                });
+                const result = await res.json();
+                if (res.ok) {
+                    statusMsg.innerText = 'Credentials saved! Click "Connect Google Fit" to authenticate.';
+                    statusMsg.style.color = '#10b981';
+                } else {
+                    statusMsg.innerText = `Error: ${result.detail || 'Failed to save'}`;
+                    statusMsg.style.color = '#ef4444';
+                }
+            } catch (err) {
+                statusMsg.innerText = `Network error: ${err.message}`;
+                statusMsg.style.color = '#ef4444';
+            }
+        }
+
+        // Connect with Google Fit OAuth
+        async function handleConnectGoogleFit() {
+            const statusMsg = document.getElementById('gfit-status-msg');
+            statusMsg.innerText = 'Opening Google Authentication...';
+            statusMsg.style.color = 'var(--text-secondary)';
+
+            try {
+                const res = await fetch('/api/health/oauth/url');
+                const data = await res.json();
+                if (res.ok && data.url) {
+                    window.location.href = data.url;
+                } else {
+                    statusMsg.innerText = data.message || 'Please save valid Client ID and Secret first.';
+                    statusMsg.style.color = '#ef4444';
+                }
+            } catch (err) {
+                statusMsg.innerText = `Auth error: ${err.message}`;
+                statusMsg.style.color = '#ef4444';
+            }
+        }
+
+        // Manual sync trigger
+        async function handleSyncGoogleFit() {
+            const statusMsg = document.getElementById('gfit-status-msg');
+            if (statusMsg) {
+                statusMsg.innerText = 'Syncing Google Fit data in background...';
+                statusMsg.style.color = 'var(--text-secondary)';
+            }
+            try {
+                const res = await fetch('/api/health/sync', { method: 'POST' });
+                const data = await res.json();
+                if (res.ok) {
+                    setTimeout(() => {
+                        fetchHealthStatus();
+                        fetchNutritionalImpact();
+                        fetchHeuristicsStatus();
+                    }, 2500);
+                }
+            } catch (err) {
+                console.warn('Sync trigger error:', err);
             }
         }
     </script>

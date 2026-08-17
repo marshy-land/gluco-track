@@ -15,9 +15,9 @@ def parse_dt(val):
         return val
     return None
 
-def predict_glucose(readings, minutes_ahead=[15, 30, 60], dampening_half_life=25):
+def predict_glucose(readings, minutes_ahead=[15, 30, 60, 90, 120], dampening_half_life=25):
     """
-    Predicts glucose values for future time offsets using a dampened linear trend.
+    Predicts glucose values for future time offsets using a dampened linear trend or adaptive ML model.
     `readings` is a list of dictionaries with 'timestamp' and 'value'.
     `dampening_half_life` is the time (in minutes) for the trend slope to decay by half.
     """
@@ -212,3 +212,284 @@ def suggest_correction(current_glucose, iob, target_glucose=120, isf=None, curre
     needed_bolus = (current_glucose - target_glucose) / isf
     suggested = needed_bolus - iob
     return round(max(0.0, suggested), 2)
+
+def suggest_carbs(current_glucose, forecasted_glucose, iob, target_glucose=100, current_time=None):
+    """
+    Suggests carbohydrate intake in grams if glucose is forecasted to be low.
+    """
+    try:
+        current_glucose = float(current_glucose)
+        target_glucose = float(target_glucose)
+        forecasted_glucose = float(forecasted_glucose)
+        iob = float(iob) if iob is not None else 0.0
+    except (ValueError, TypeError):
+        return 0.0
+
+    if forecasted_glucose >= target_glucose and current_glucose >= target_glucose:
+        return 0.0
+
+    try:
+        from ml_heuristics import load_heuristics_params, get_time_of_day_bucket
+        params = load_heuristics_params()
+        t = current_time or datetime.now(timezone.utc)
+        if isinstance(t, str):
+            t = parse_dt(t) or datetime.now(timezone.utc)
+        bucket = get_time_of_day_bucket(t)
+        csf = params.get("csf", {}).get(bucket, 4.0)
+        isf = params.get("isf", {}).get(bucket, 50.0)
+    except Exception:
+        csf = 4.0
+        isf = 50.0
+
+    try:
+        csf = float(csf)
+        if math.isnan(csf) or math.isinf(csf) or csf <= 0:
+            csf = 4.0
+    except (ValueError, TypeError):
+        csf = 4.0
+
+    # Calculate required rise to reach target.
+    # Add (IOB * ISF) to counteract active insulin.
+    required_rise = (target_glucose - forecasted_glucose) + (iob * isf)
+    
+    if required_rise <= 0:
+        return 0.0
+        
+    suggested_carbs = required_rise / csf
+    return round(suggested_carbs, 1)
+
+
+def calculate_safe_carb_allowance(current_glucose, forecasted_60m, iob, isf=50.0, csf=4.0, upper_limit=160.0):
+    """
+    Calculates the safe carb intake at any given moment:
+    - If trending low/in deficit: returns the exact Rescue Carbs needed.
+    - If in safe target range: returns the Safe Snack Allowance without exceeding upper_limit.
+    - If elevated: returns 0g safe carbs (advise low/zero carb).
+    """
+    try:
+        cur = float(current_glucose)
+        f60 = float(forecasted_60m)
+        iob_val = float(iob) if iob else 0.0
+        isf_val = float(isf) if isf else 50.0
+        csf_val = float(csf) if csf else 4.0
+    except (ValueError, TypeError):
+        return {"type": "unknown", "grams": 0, "label": "No Data", "explanation": "Awaiting glucose readings."}
+
+    # 1. Check if low or projected to go low (<95 mg/dL)
+    if cur < 90.0 or f60 < 95.0:
+        needed_rise = max(0.0, (105.0 - min(cur, f60)) + (iob_val * isf_val))
+        grams = round(needed_rise / csf_val, 0)
+        return {
+            "type": "rescue",
+            "grams": max(5.0, grams),
+            "label": f"Take ~{int(max(5.0, grams))}g Fast Carbs",
+            "status": "warning_low",
+            "explanation": f"Required to prevent/intercept low blood sugar (projected {f60:.0f} mg/dL)."
+        }
+
+    # 2. Check if blood sugar is high (>160 mg/dL)
+    if cur > upper_limit:
+        return {
+            "type": "restricted",
+            "grams": 0,
+            "label": "0g (Elevated)",
+            "status": "warning_high",
+            "explanation": f"Glucose is elevated ({cur:.0f} mg/dL). Avoid carbs until level normalizes."
+        }
+
+    # 3. In-range safe snack allowance
+    # Safe headroom = upper_limit - projected glucose + insulin headroom
+    effective_glucose = max(cur, f60)
+    headroom = (upper_limit - effective_glucose) + (iob_val * isf_val)
+    safe_grams = max(0.0, headroom / csf_val)
+    # Cap at a reasonable single snack ceiling (e.g. 35g)
+    safe_grams = min(35.0, round(safe_grams, 0))
+
+    if safe_grams >= 10.0:
+        return {
+            "type": "snack_allowance",
+            "grams": safe_grams,
+            "label": f"Safe Snack: ~{int(safe_grams)}g",
+            "status": "optimal",
+            "explanation": f"You can consume up to ~{int(safe_grams)}g carbs without spiking above {int(upper_limit)} mg/dL."
+        }
+    else:
+        return {
+            "type": "snack_allowance",
+            "grams": safe_grams,
+            "label": f"Small Snack: ~{int(safe_grams)}g",
+            "status": "optimal",
+            "explanation": f"Limited carb buffer ({int(safe_grams)}g) before reaching upper target threshold."
+        }
+
+
+def calculate_proactive_alert(current_glucose, predictions, iob, isf=50.0, csf=4.0):
+    """
+    Analyzes forecasts specifically >1 hour out (60, 90, 120 min) to generate
+    early-warning alerts and preventative instructions.
+    """
+    if not predictions:
+        return {
+            "level": "neutral",
+            "title": "Monitoring Trends",
+            "message": "Collecting trend history to forecast >1 hour ahead.",
+            "forecast_60": None,
+            "forecast_90": None,
+            "forecast_120": None
+        }
+
+    f60 = next((p['value'] for p in predictions if p['minutes'] == 60), None)
+    f90 = next((p['value'] for p in predictions if p['minutes'] == 90), None)
+    f120 = next((p['value'] for p in predictions if p['minutes'] == 120), None)
+
+    # Find minimum and maximum future values over 60-120 minutes
+    future_vals = [p for p in predictions if p['minutes'] >= 60]
+    if not future_vals:
+        future_vals = predictions
+
+    min_future = min(future_vals, key=lambda x: x['value'])
+    max_future = max(future_vals, key=lambda x: x['value'])
+
+    # Low alert for >1 hour out (<75 mg/dL)
+    if min_future['value'] < 75.0:
+        needed_carbs = suggest_carbs(current_glucose, min_future['value'], iob)
+        return {
+            "level": "warning_low",
+            "badge": "⚠️ Proactive Low Warning",
+            "title": f"Projected {min_future['value']:.0f} mg/dL in {min_future['minutes']}m",
+            "message": f"Pre-emptive Action: Consume ~{needed_carbs:.0f}g carbs now to prevent a low in {min_future['minutes']} minutes.",
+            "forecast_60": f60,
+            "forecast_90": f90,
+            "forecast_120": f120,
+            "target_action": "eat_carbs",
+            "action_val": needed_carbs
+        }
+
+    # High alert for >1 hour out (>180 mg/dL)
+    if max_future['value'] > 180.0:
+        needed_correction = suggest_correction(max_future['value'], iob, target_glucose=120.0, isf=isf)
+        return {
+            "level": "warning_high",
+            "badge": "⚠️ Proactive High Warning",
+            "title": f"Projected {max_future['value']:.0f} mg/dL in {max_future['minutes']}m",
+            "message": f"Pre-emptive Action: Projected rise to {max_future['value']:.0f} mg/dL. Consider ~{needed_correction:.1f} U correction bolus.",
+            "forecast_60": f60,
+            "forecast_90": f90,
+            "forecast_120": f120,
+            "target_action": "take_insulin",
+            "action_val": needed_correction
+        }
+
+    # Stable in-range trajectory
+    return {
+        "level": "optimal",
+        "badge": "🟢 Stable Trajectory (>1 Hour)",
+        "title": f"In Target (60m: {f60:.0f} | 90m: {f90 or f60:.0f} mg/dL)",
+        "message": "Projected blood sugar remains stable in target range (70–160 mg/dL) over the next 2+ hours.",
+        "forecast_60": f60,
+        "forecast_90": f90,
+        "forecast_120": f120,
+        "target_action": "none",
+        "action_val": 0.0
+    }
+
+
+def get_lantus_schedule_status(timezone_str="America/New_York"):
+    """
+    Computes adherence and next due status for the 2x Daily Lantus Regimen:
+    - 6:00 AM (13.0 Units)
+    - 6:00 PM (13.0 Units)
+    Total Daily: 26.0 Units
+    """
+    try:
+        tz = pytz.timezone(timezone_str)
+    except Exception:
+        tz = pytz.utc
+
+    now_local = datetime.now(timezone.utc).astimezone(tz)
+    today_date = now_local.date()
+
+    # Fetch last 36 hours of insulin logs to detect today's and yesterday's long-acting doses
+    try:
+        doses = db.get_insulin_history(36, include_imputed=False)
+    except Exception:
+        doses = []
+
+    long_doses = []
+    for d in doses:
+        if d.get("long_acting") and float(d["long_acting"]) > 0:
+            dt = parse_dt(d["timestamp"])
+            if dt:
+                dt_local = dt.astimezone(tz)
+                long_doses.append({"time": dt_local, "units": float(d["long_acting"])})
+
+    # Morning dose window: 04:00 to 12:00
+    # Evening dose window: 16:00 to 23:59
+    morning_taken = any(
+        d["time"].date() == today_date and 4 <= d["time"].hour < 12 and d["units"] >= 8.0
+        for d in long_doses
+    )
+    evening_taken = any(
+        d["time"].date() == today_date and 16 <= d["time"].hour < 24 and d["units"] >= 8.0
+        for d in long_doses
+    )
+
+    # Determine next scheduled dose
+    morn_sched = tz.localize(datetime(today_date.year, today_date.month, today_date.day, 6, 0))
+    eve_sched = tz.localize(datetime(today_date.year, today_date.month, today_date.day, 18, 0))
+
+    if now_local < morn_sched:
+        next_slot_time = morn_sched
+        next_slot_name = "Morning Dose (13.0 U)"
+        slot_status = "upcoming"
+    elif now_local < eve_sched:
+        if not morning_taken and (now_local - morn_sched).total_seconds() > 3600:
+            next_slot_time = morn_sched
+            next_slot_name = "Morning Dose (13.0 U) [OVERDUE]"
+            slot_status = "overdue"
+        else:
+            next_slot_time = eve_sched
+            next_slot_name = "Evening Dose (13.0 U)"
+            slot_status = "upcoming"
+    else:
+        if not evening_taken and (now_local - eve_sched).total_seconds() > 3600:
+            next_slot_time = eve_sched
+            next_slot_name = "Evening Dose (13.0 U) [OVERDUE]"
+            slot_status = "overdue"
+        else:
+            next_day = today_date + timedelta(days=1)
+            next_slot_time = tz.localize(datetime(next_day.year, next_day.month, next_day.day, 6, 0))
+            next_slot_name = "Tomorrow Morning (13.0 U)"
+            slot_status = "upcoming"
+
+    diff_secs = (next_slot_time - now_local).total_seconds()
+    if diff_secs < 0:
+        countdown_str = f"{int(abs(diff_secs)//60)} mins overdue"
+    else:
+        hrs = int(diff_secs // 3600)
+        mins = int((diff_secs % 3600) // 60)
+        countdown_str = f"in {hrs}h {mins}m" if hrs > 0 else f"in {mins}m"
+
+    return {
+        "regimen": "Twice Daily (13U @ 6 AM / 13U @ 6 PM)",
+        "dose_units": 13.0,
+        "total_daily_units": 26.0,
+        "morning": {
+            "time_str": "6:00 AM",
+            "units": 13.0,
+            "taken": morning_taken
+        },
+        "evening": {
+            "time_str": "6:00 PM",
+            "units": 13.0,
+            "taken": evening_taken
+        },
+        "next_dose": {
+            "name": next_slot_name,
+            "time_str": next_slot_time.strftime("%I:%M %p"),
+            "countdown": countdown_str,
+            "status": slot_status,
+            "units": 13.0
+        }
+    }
+
