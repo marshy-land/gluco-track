@@ -409,6 +409,20 @@ def api_log_lantus_scheduled_dose(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.delete("/api/insulin/{dose_id}")
+def api_delete_insulin_dose(dose_id: int):
+    """Deletes a logged insulin dose from the database."""
+    try:
+        from db import delete_insulin_dose
+        deleted = delete_insulin_dose(dose_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Insulin dose not found or already deleted.")
+        return {"success": True, "message": f"Dose #{dose_id} deleted successfully."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/glucose/stats")
 def api_stats(hours: int = Query(default=24, ge=1, le=4320)):
     """Computes stats (average, GMI, Time-in-Range) for the last N hours."""

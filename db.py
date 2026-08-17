@@ -282,6 +282,22 @@ def get_insulin_history(limit_hours=24, include_imputed=False):
     finally:
         conn.close()
 
+def delete_insulin_dose(dose_id: int) -> bool:
+    """Deletes an insulin dose entry by its database ID."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM insulin_doses WHERE id = %s", (dose_id,))
+            deleted = cur.rowcount
+            conn.commit()
+            return deleted > 0
+    except Exception as e:
+        print(f"Error deleting insulin dose {dose_id}: {e}")
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
 def insert_food_log(carbs_g, timestamp, food_type=None, is_imputed=False, confidence_score=None):
     """Inserts a food/carbohydrate log."""
     conn = get_connection()
