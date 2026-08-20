@@ -198,7 +198,7 @@ def compute_meal_bolus(carbs_g, summary):
 
 def handle_telegram_update(update):
     """
-    Main entrypoint for processing incoming Telegram Webhook or Long-Polling updates.
+    Main entrypoint for processing incoming Telegram updates.
     """
     # 1. Handle Inline Button Clicks (Callback Queries)
     if "callback_query" in update:
@@ -235,12 +235,12 @@ def handle_telegram_update(update):
                 }
                 db.insert_insulin_doses([dose_dict])
 
-            answer_callback_query(cb_id, f"Logged {carbs:.0f}g carbs & {bolus:.1f}U bolus!")
-            bolus_text = f" + <b>{bolus:.1f}U bolus</b>" if bolus > 0 else ""
+            answer_callback_query(cb_id, f"Recorded {carbs:.0f}g carbs & {bolus:.1f}U bolus.")
+            bolus_text = f" + <b>{bolus:.1f}U</b>" if bolus > 0 else ""
             edit_message_text(
                 chat_id=chat_id,
                 message_id=msg_id,
-                text=f"✅ <b>{actor_name}: Logged {carbs:.0f}g carbs{bolus_text}</b> • {time_str}"
+                text=f"✅ <b>{actor_name}: Recorded {carbs:.0f}g carbs{bolus_text}</b> • {time_str}"
             )
             return {"status": "ok", "action": "meal_logged"}
 
@@ -263,13 +263,13 @@ def handle_telegram_update(update):
                 "serial_number": None
             }
             db.insert_insulin_doses([dose_dict])
-            answer_callback_query(cb_id, f"Logged {units}U Lantus!")
+            answer_callback_query(cb_id, f"Recorded {units}U Lantus.")
             db.set_system_setting("pending_compliance_check", None)
 
             edit_message_text(
                 chat_id=chat_id,
                 message_id=msg_id,
-                text=f"✅ <b>{actor_name}: Logged {units:.1f} U Lantus</b> • {time_str}"
+                text=f"✅ <b>{actor_name}: {units:.1f} U Lantus recorded</b> • {time_str}"
             )
             return {"status": "ok", "action": "lantus_logged"}
 
@@ -292,23 +292,23 @@ def handle_telegram_update(update):
                 "serial_number": None
             }
             db.insert_insulin_doses([dose_dict])
-            answer_callback_query(cb_id, f"Logged {units}U Correction!")
+            answer_callback_query(cb_id, f"Recorded {units}U.")
             db.set_system_setting("pending_compliance_check", None)
 
             edit_message_text(
                 chat_id=chat_id,
                 message_id=msg_id,
-                text=f"✅ <b>{actor_name}: Logged {units:.1f} U Rapid Correction</b> • {time_str}"
+                text=f"✅ <b>{actor_name}: {units:.1f} U rapid recorded</b> • {time_str}"
             )
             return {"status": "ok", "action": "correction_logged"}
 
-        # D. Snooze Reminder for 15 minutes
+        # D. Snooze / Later (Calm, non-demanding space)
         elif cb_data.startswith("snooze:"):
             try:
                 mins = int(cb_data.split(":")[1])
             except Exception:
-                mins = 15
-            answer_callback_query(cb_id, f"Snoozed {mins}m.")
+                mins = 60
+            answer_callback_query(cb_id, "Took note.")
             
             snooze_until = (datetime.now(timezone.utc) + timedelta(minutes=mins)).isoformat()
             pending = db.get_system_setting("pending_compliance_check") or {}
@@ -318,18 +318,18 @@ def handle_telegram_update(update):
             edit_message_text(
                 chat_id=chat_id,
                 message_id=msg_id,
-                text=f"⏳ <b>{actor_name}: Snoozed 15m</b> (Next check: {(now_est + timedelta(minutes=mins)).strftime('%I:%M %p EST')})"
+                text=f"⏳ <b>{actor_name}: Noted</b> — checking back later whenever you're ready."
             )
             return {"status": "ok", "action": "snoozed"}
 
         # E. Skip / Dismiss
         elif cb_data in ["skip_dose", "dismiss"]:
-            answer_callback_query(cb_id, "Dismissed.")
+            answer_callback_query(cb_id, "Noted.")
             db.set_system_setting("pending_compliance_check", None)
             edit_message_text(
                 chat_id=chat_id,
                 message_id=msg_id,
-                text=f"✕ <i>Dismissed by {actor_name}</i>"
+                text=f"✕ <i>Noted for today by {actor_name}</i>"
             )
             return {"status": "ok", "action": "dismissed"}
 
@@ -354,7 +354,6 @@ def handle_telegram_update(update):
                 carbs_g = analysis.get("carbs_g", 35.0)
                 bolus = compute_meal_bolus(carbs_g, summary)
                 
-                # Condensed items summary
                 item_parts = []
                 for it in analysis.get("items", []):
                     item_parts.append(f"{it.get('name', 'Food')} ({it.get('carbs_g', 0):.0f}g)")
@@ -390,7 +389,7 @@ def handle_telegram_update(update):
 
         welcome_text = (
             f"🎉 <b>Connected to {chat_title}!</b>\n"
-            f"Active channel for Lantus reminders (6 AM & 6 PM EST), meal photo carb counts, and urgent alerts.\n"
+            f"Active channel for Lantus routine reminders (6 AM & 6 PM EST), meal photo carb counts, and urgent alerts.\n"
             f"Commands: <code>/status</code>, <code>/carbs</code>, <code>/dose</code>, <code>/schedule</code>"
         )
         send_telegram_message(welcome_text, chat_id=chat_id)
@@ -474,7 +473,7 @@ def handle_telegram_update(update):
             db.insert_insulin_doses([dose_dict])
             db.set_system_setting("pending_compliance_check", None)
 
-            send_telegram_message(f"✅ <b>{sender_name}: Logged {units:.1f} U Lantus</b> • {time_str}", chat_id=chat_id)
+            send_telegram_message(f"✅ <b>{sender_name}: {units:.1f} U Lantus recorded</b> • {time_str}", chat_id=chat_id)
             return {"status": "ok"}
 
         rapid_match = re.search(r'(?:took|injected|logged|take)\s*(\d+(?:\.\d+)?)\s*(?:u|units)?\s*(?:of)?\s*(?:rapid|novolog|humalog|correction|bolus)', lower)
@@ -498,7 +497,7 @@ def handle_telegram_update(update):
             db.insert_insulin_doses([dose_dict])
             db.set_system_setting("pending_compliance_check", None)
 
-            send_telegram_message(f"✅ <b>{sender_name}: Logged {units:.1f} U Rapid Bolus</b> • {time_str}", chat_id=chat_id)
+            send_telegram_message(f"✅ <b>{sender_name}: {units:.1f} U Rapid recorded</b> • {time_str}", chat_id=chat_id)
             return {"status": "ok"}
 
         # /start or /help
@@ -551,14 +550,13 @@ def handle_telegram_update(update):
 
             if sc["type"] == "rescue":
                 reply = (
-                    f"🚨 <b>Rescue Carbs Needed</b> ({time_str})\n"
-                    f"<b>{bg:.0f} mg/dL</b> (Low trajectory)\n"
-                    f"👉 Take <b>~{int(sc['grams'])}g fast-acting carbs</b> immediately."
+                    f"🚨 <b>Low Trajectory: {bg:.0f} mg/dL</b> ({time_str})\n"
+                    f"👉 Take <b>~{int(sc['grams'])}g fast-acting carbs</b> to stay steady."
                 )
             elif sc["type"] == "restricted":
                 reply = (
                     f"⚠️ <b>Elevated Glucose: {bg:.0f} mg/dL</b>\n"
-                    f"Carb buffer is restricted. Opt for zero/low carb snacks until normalized."
+                    f"Carb buffer is limited right now. Low or zero-carb snacks are best until levels settle."
                 )
             else:
                 reply = (
@@ -586,7 +584,7 @@ def handle_telegram_update(update):
                 keyboard = {
                     "inline_keyboard": [
                         [{"text": f"✓ Log {corr:.1f} U", "callback_data": f"took_correction:{corr:.1f}"}],
-                        [{"text": "⏳ 15m", "callback_data": "snooze:15"}, {"text": "✕ Skip", "callback_data": "skip_dose"}]
+                        [{"text": "⏳ Later", "callback_data": "snooze:60"}, {"text": "✕ Skip", "callback_data": "skip_dose"}]
                     ]
                 }
                 send_telegram_message(reply, reply_markup=keyboard, chat_id=chat_id)
@@ -617,7 +615,7 @@ def handle_telegram_update(update):
             )
             keyboard = {
                 "inline_keyboard": [
-                    [{"text": "✓ Log 13.0 U Lantus", "callback_data": "took_lantus:13.0"}]
+                    [{"text": "✓ Done (13.0 U)", "callback_data": "took_lantus:13.0"}]
                 ]
             }
             send_telegram_message(reply, reply_markup=keyboard, chat_id=chat_id)

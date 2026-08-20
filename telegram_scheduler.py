@@ -9,12 +9,28 @@ _scheduler_running = False
 _scheduler_thread = None
 EST_TZ = pytz.timezone("America/New_York")
 
+# Progressive, low-demand check-in prompts designed to support routine without triggering anxiety or pressure
+GENTLE_PROMPTS = {
+    "morning": [
+        "🌅 <b>Morning routine window is open • 13.0 U Lantus</b>\nBG: <b>{bg} mg/dL</b> • Whenever you're ready.",
+        "☀️ <b>Gentle check-in for your 13.0 U morning dose.</b>\nReady whenever you are today.",
+        "🌿 <b>Checking in on your 13.0 U dose whenever you get a free moment.</b>",
+        "🌤️ <b>Still keeping track of your morning 13.0 U dose whenever you're set.</b>"
+    ],
+    "evening": [
+        "🌇 <b>Evening routine window is open • 13.0 U Lantus</b>\nBG: <b>{bg} mg/dL</b> • Whenever you're ready.",
+        "🌙 <b>Gentle check-in for your 13.0 U evening dose.</b>\nReady whenever you are tonight.",
+        "🌿 <b>Checking in on your 13.0 U dose whenever you get a quiet moment.</b>",
+        "✨ <b>Still keeping track of your evening 13.0 U dose whenever you're set.</b>"
+    ]
+}
+
+# Progressive delays between checks in minutes: +45m -> +75m -> +120m
+PROGRESSIVE_DELAYS = [45, 75, 120]
+
 def check_and_send_scheduled_alerts():
     """
-    Main periodic check executed every 60s with strict high-importance thresholds:
-    1. Twice-daily Lantus reminders (6:00 AM & 6:00 PM EST)
-    2. Single 15-20m compliance follow-up if unlogged
-    3. Urgent-only alerts: Low (<70 mg/dL or proj <65) or Sustained High (>240 mg/dL)
+    Periodic monitor with continuous, gentle, progressive check-ins and urgent-only alerts.
     """
     config = get_telegram_config()
     if not config.get("is_configured"):
@@ -27,67 +43,65 @@ def check_and_send_scheduled_alerts():
     now_utc = datetime.now(timezone.utc)
     now_est = now_utc.astimezone(EST_TZ)
     today_date = now_est.date()
+    today_str = today_date.isoformat()
 
     summary = get_live_patient_summary()
     if not summary:
         return
 
-    # --- 1. Twice-Daily Lantus Reminders (06:00 AM EST & 18:00 PM EST) ---
     ls = summary["lantus_schedule"]
     last_reminders = db.get_system_setting("last_lantus_reminders") or {}
-    today_str = today_date.isoformat()
+    bg_val = f"{summary['glucose']:.0f}"
 
+    # --- 1. Twice-Daily Scheduled Openings (06:00 AM & 18:00 PM EST) ---
+    
     # Morning Window (06:00 AM - 06:15 AM EST)
     if now_est.hour == 6 and now_est.minute < 15 and not ls["morning"]["taken"]:
         if last_reminders.get("morning_date") != today_str:
-            msg = (
-                f"🌅 <b>Lantus Reminder: 13.0 U</b> (6:00 AM EST)\n"
-                f"BG: <b>{summary['glucose']:.0f} mg/dL</b> • IOB: {summary['iob']:.1f} U"
-            )
+            msg = GENTLE_PROMPTS["morning"][0].format(bg=bg_val)
             keyboard = {
                 "inline_keyboard": [
-                    [{"text": "✓ Took 13.0 U", "callback_data": "took_lantus:13.0"}],
-                    [{"text": "⏳ 15m", "callback_data": "snooze:15"}, {"text": "✕ Skip", "callback_data": "skip_dose"}]
+                    [{"text": "✓ Done (13.0 U)", "callback_data": "took_lantus:13.0"}],
+                    [{"text": "⏳ Later", "callback_data": "snooze:60"}, {"text": "✕ Skip today", "callback_data": "skip_dose"}]
                 ]
             }
             send_telegram_message(msg, reply_markup=keyboard)
             last_reminders["morning_date"] = today_str
             db.set_system_setting("last_lantus_reminders", last_reminders)
 
-            # Register single 15-minute compliance follow-up
+            # Register progressive gentle check-in starting at +45m
             db.set_system_setting("pending_compliance_check", {
                 "type": "morning_lantus",
-                "units": 13.0,
+                "step": 1,
                 "sent_at": now_utc.isoformat(),
-                "due_at": (now_utc + timedelta(minutes=18)).isoformat()
+                "due_at": (now_utc + timedelta(minutes=45)).isoformat(),
+                "date": today_str
             })
 
     # Evening Window (18:00 PM - 18:15 PM EST)
     elif now_est.hour == 18 and now_est.minute < 15 and not ls["evening"]["taken"]:
         if last_reminders.get("evening_date") != today_str:
-            msg = (
-                f"🌇 <b>Lantus Reminder: 13.0 U</b> (6:00 PM EST)\n"
-                f"BG: <b>{summary['glucose']:.0f} mg/dL</b> • IOB: {summary['iob']:.1f} U"
-            )
+            msg = GENTLE_PROMPTS["evening"][0].format(bg=bg_val)
             keyboard = {
                 "inline_keyboard": [
-                    [{"text": "✓ Took 13.0 U", "callback_data": "took_lantus:13.0"}],
-                    [{"text": "⏳ 15m", "callback_data": "snooze:15"}, {"text": "✕ Skip", "callback_data": "skip_dose"}]
+                    [{"text": "✓ Done (13.0 U)", "callback_data": "took_lantus:13.0"}],
+                    [{"text": "⏳ Later", "callback_data": "snooze:60"}, {"text": "✕ Skip today", "callback_data": "skip_dose"}]
                 ]
             }
             send_telegram_message(msg, reply_markup=keyboard)
             last_reminders["evening_date"] = today_str
             db.set_system_setting("last_lantus_reminders", last_reminders)
 
-            # Register single 15-minute compliance follow-up
+            # Register progressive gentle check-in starting at +45m
             db.set_system_setting("pending_compliance_check", {
                 "type": "evening_lantus",
-                "units": 13.0,
+                "step": 1,
                 "sent_at": now_utc.isoformat(),
-                "due_at": (now_utc + timedelta(minutes=18)).isoformat()
+                "due_at": (now_utc + timedelta(minutes=45)).isoformat(),
+                "date": today_str
             })
 
-    # --- 2. Single 15-20 Min Compliance Check-in ---
+    # --- 2. Gentle Progressive Follow-up Cycle ---
     pending = db.get_system_setting("pending_compliance_check")
     if pending and isinstance(pending, dict):
         due_str = pending.get("snooze_until") or pending.get("due_at")
@@ -95,10 +109,11 @@ def check_and_send_scheduled_alerts():
             try:
                 due_dt = datetime.fromisoformat(due_str.replace("Z", "+00:00"))
                 if now_utc >= due_dt:
+                    # Check if a long-acting dose was logged today since sent_at
                     sent_str = pending.get("sent_at", "")
-                    sent_dt = datetime.fromisoformat(sent_str.replace("Z", "+00:00")) if sent_str else now_utc - timedelta(minutes=25)
+                    sent_dt = datetime.fromisoformat(sent_str.replace("Z", "+00:00")) if sent_str else now_utc - timedelta(hours=6)
                     
-                    recent_doses = db.get_insulin_history(1, include_imputed=False)
+                    recent_doses = db.get_insulin_history(12, include_imputed=False)
                     dose_logged = False
                     for d in recent_doses:
                         ts = d.get("timestamp")
@@ -109,23 +124,36 @@ def check_and_send_scheduled_alerts():
                             break
 
                     if not dose_logged:
-                        tag = "Morning 6 AM" if "morning" in pending.get("type", "") else "Evening 6 PM"
-                        msg = (
-                            f"👋 <b>Lantus Check-in: 13.0 U</b> ({tag} EST)\n"
-                            f"Confirm if taken to maintain 24h basal coverage."
-                        )
+                        period = "morning" if "morning" in pending.get("type", "") else "evening"
+                        step = pending.get("step", 1)
+                        prompt_list = GENTLE_PROMPTS[period]
+                        prompt_idx = min(step, len(prompt_list) - 1)
+                        msg = prompt_list[prompt_idx].format(bg=bg_val)
+
                         keyboard = {
                             "inline_keyboard": [
-                                [{"text": "✓ Yes, Took 13.0 U", "callback_data": "took_lantus:13.0"}],
-                                [{"text": "⏳ 15m", "callback_data": "snooze:15"}, {"text": "✕ Skip", "callback_data": "skip_dose"}]
+                                [{"text": "✓ Done (13.0 U)", "callback_data": "took_lantus:13.0"}],
+                                [{"text": "⏳ Later", "callback_data": "snooze:60"}, {"text": "✕ Skip today", "callback_data": "skip_dose"}]
                             ]
                         }
                         send_telegram_message(msg, reply_markup=keyboard)
 
-                    # Clear pending check so it does not repeat
-                    db.set_system_setting("pending_compliance_check", None)
+                        # Advance to next progressive interval
+                        if step < len(PROGRESSIVE_DELAYS):
+                            next_delay = PROGRESSIVE_DELAYS[step]
+                            pending["step"] = step + 1
+                            pending["sent_at"] = now_utc.isoformat()
+                            pending["due_at"] = (now_utc + timedelta(minutes=next_delay)).isoformat()
+                            pending.pop("snooze_until", None)
+                            db.set_system_setting("pending_compliance_check", pending)
+                        else:
+                            # Concluded today's gentle cycle
+                            db.set_system_setting("pending_compliance_check", None)
+                    else:
+                        # Already recorded
+                        db.set_system_setting("pending_compliance_check", None)
             except Exception as e:
-                print(f"[TelegramScheduler] Error in compliance check: {e}")
+                print(f"[TelegramScheduler] Error in gentle follow-up: {e}")
                 db.set_system_setting("pending_compliance_check", None)
 
     # --- 3. High-Importance Alerts ONLY (Urgent Low or Sustained High) ---
@@ -133,30 +161,24 @@ def check_and_send_scheduled_alerts():
     iob = summary["iob"]
     preds = summary.get("predictions", [])
     
-    # Calculate min and max forecast over 30-60 min
     f30_60 = [p for p in preds if 30 <= p.get('minutes', 0) <= 60]
     min_f = min([p['value'] for p in f30_60]) if f30_60 else bg
     max_f = max([p['value'] for p in f30_60]) if f30_60 else bg
 
-    # Alert criteria:
-    # 1. Urgent Low: BG < 70 OR projected < 65 within 60m
     is_urgent_low = (bg < 70.0) or (min_f < 65.0 and bg < 90.0)
-    # 2. Urgent High: BG > 240 OR projected > 250 with low IOB (< 1.0U)
     is_urgent_high = (bg > 240.0 and iob < 1.0) or (max_f > 250.0 and iob < 0.5)
 
     if is_urgent_low or is_urgent_high:
         last_alert = db.get_system_setting("last_proactive_alert") or {}
         last_time_str = last_alert.get("timestamp")
-        last_type = last_alert.get("type")
         send_alert = True
 
-        # Throttle cooldown: 90 mins for Lows, 150 mins for Highs (unless critical < 55)
         if last_time_str:
             try:
                 last_time = datetime.fromisoformat(last_time_str.replace("Z", "+00:00"))
                 cooldown_secs = 5400 if is_urgent_low else 9000
                 if bg < 55.0 and last_alert.get("level") != "critical_low":
-                    send_alert = True # Critical bypass
+                    send_alert = True
                 elif (now_utc - last_time).total_seconds() < cooldown_secs:
                     send_alert = False
             except Exception:
