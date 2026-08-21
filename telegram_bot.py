@@ -157,7 +157,7 @@ def get_live_patient_summary():
 
         f60 = next((p['value'] for p in predictions if p['minutes'] == 60), latest['value'])
         safe_carbs = calculate_safe_carb_allowance(latest['value'], f60, total_iob, isf=isf, csf=csf)
-        correction = suggest_correction(latest['value'], total_iob, target_glucose=120.0, isf=isf)
+        correction = suggest_correction(latest['value'], total_iob, target_glucose=120.0, isf=isf, forecasted_glucose=f60)
         proactive_alert = calculate_proactive_alert(latest['value'], predictions, total_iob, isf=isf, csf=csf)
         lantus_schedule = get_lantus_schedule_status(timezone_str="America/New_York")
 
@@ -180,7 +180,7 @@ def get_live_patient_summary():
         return None
 
 def compute_meal_bolus(carbs_g, summary):
-    """Calculates suggested meal insulin bolus based on carbs, current BG, ISF, CSF, and IOB."""
+    """Calculates suggested meal insulin bolus based on carbs and trajectory-aware preemptive correction."""
     if not summary or carbs_g <= 0:
         return 0.0
     
@@ -189,10 +189,8 @@ def compute_meal_bolus(carbs_g, summary):
     icr = max(isf / max(csf, 1.0), 8.0) # e.g. 50 / 4 = 12.5g per 1U
     
     carb_insulin = carbs_g / icr
-    bg = summary.get("glucose", 110.0)
-    correction = max(0.0, (bg - 120.0) / isf) if bg > 120.0 else 0.0
-    iob = summary.get("iob", 0.0)
-    net_bolus = max(0.0, carb_insulin + correction - iob)
+    correction = summary.get("correction", 0.0)
+    net_bolus = max(0.0, carb_insulin + correction)
     
     return round(net_bolus, 1)
 

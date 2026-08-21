@@ -164,7 +164,7 @@ def api_predictions(
             used_isf = 50.0
             used_csf = 4.0
 
-    suggested_insulin = suggest_correction(latest['value'], total_iob, target_glucose=target, isf=used_isf, current_time=latest['timestamp'])
+    suggested_insulin = suggest_correction(latest['value'], total_iob, target_glucose=target, isf=used_isf, current_time=latest['timestamp'], forecasted_glucose=forecasted_60m)
     suggested_carbohydrates = suggest_carbs(latest['value'], forecasted_30m, total_iob, target_glucose=100.0, current_time=latest['timestamp'])
 
     # Safe carb allowance (either rescue carbs or safe snack allowance)

@@ -172,10 +172,13 @@ def calculate_iob(doses, current_time=None, action_duration_mins=240):
 
     return round(total_iob, 2)
 
-def suggest_correction(current_glucose, iob, target_glucose=120, isf=None, current_time=None):
+def suggest_correction(current_glucose, iob, target_glucose=120, isf=None, current_time=None, forecasted_glucose=None):
     """
-    Suggests correction insulin units:
-    Correction = (Current Glucose - Target Glucose) / ISF - IOB
+    Calculates trajectory-aware preemptive correction insulin units:
+    - If forecasted_glucose is provided:
+      If blood sugar is trending downward, uses the forecasted glucose to prevent dangerous over-correction / insulin stacking.
+      If blood sugar is trending upward, uses the forecasted rise to calculate the necessary preemptive dose.
+    - Correction = max(0.0, (Effective Glucose - Target Glucose) / ISF - IOB)
     """
     try:
         current_glucose = float(current_glucose)
@@ -187,7 +190,21 @@ def suggest_correction(current_glucose, iob, target_glucose=120, isf=None, curre
     if math.isnan(current_glucose) or math.isinf(current_glucose) or math.isnan(target_glucose) or math.isinf(target_glucose):
         return 0.0
 
-    if current_glucose <= target_glucose:
+    # Determine effective glucose based on forward trajectory if provided
+    effective_glucose = current_glucose
+    if forecasted_glucose is not None:
+        try:
+            f_val = float(forecasted_glucose)
+            if not (math.isnan(f_val) or math.isinf(f_val)):
+                # If trending down towards or below target, respect the downward forecast
+                if f_val < current_glucose:
+                    effective_glucose = f_val
+                else:
+                    effective_glucose = max(current_glucose, f_val)
+        except (ValueError, TypeError):
+            pass
+
+    if effective_glucose <= target_glucose:
         return 0.0
 
     if isf is None:
@@ -209,7 +226,7 @@ def suggest_correction(current_glucose, iob, target_glucose=120, isf=None, curre
     except (ValueError, TypeError):
         isf = 50.0
 
-    needed_bolus = (current_glucose - target_glucose) / isf
+    needed_bolus = (effective_glucose - target_glucose) / isf
     suggested = needed_bolus - iob
     return round(max(0.0, suggested), 2)
 
@@ -365,27 +382,27 @@ def calculate_proactive_alert(current_glucose, predictions, iob, isf=50.0, csf=4
             "action_val": needed_carbs
         }
 
-    # High alert for >1 hour out (>180 mg/dL)
-    if max_future['value'] > 180.0:
-        needed_correction = suggest_correction(max_future['value'], iob, target_glucose=120.0, isf=isf)
+    # High alert for >1 hour out (only if preemptive correction is genuinely required)
+    preemptive_correction = suggest_correction(current_glucose, iob, target_glucose=120.0, isf=isf, forecasted_glucose=f60 or max_future['value'])
+    if preemptive_correction > 0.0 and (max_future['value'] > 180.0 or current_glucose > 180.0):
         return {
             "level": "warning_high",
             "badge": "⚠️ Proactive High Warning",
             "title": f"Projected {max_future['value']:.0f} mg/dL in {max_future['minutes']}m",
-            "message": f"Pre-emptive Action: Projected rise to {max_future['value']:.0f} mg/dL. Consider ~{needed_correction:.1f} U correction bolus.",
+            "message": f"Preemptive Action: Projected level warrants ~{preemptive_correction:.1f} U correction bolus.",
             "forecast_60": f60,
             "forecast_90": f90,
             "forecast_120": f120,
             "target_action": "take_insulin",
-            "action_val": needed_correction
+            "action_val": preemptive_correction
         }
 
-    # Stable in-range trajectory
+    # Stable in-range or naturally normalizing trajectory
     return {
         "level": "optimal",
         "badge": "🟢 Stable Trajectory (>1 Hour)",
-        "title": f"In Target (60m: {f60:.0f} | 90m: {f90 or f60:.0f} mg/dL)",
-        "message": "Projected blood sugar remains stable in target range (70–160 mg/dL) over the next 2+ hours.",
+        "title": f"In Target (60m: {f60:.0f} | 90m: {f90 or f60:.0f} mg/dL)" if f60 else "In Target",
+        "message": "Projected blood sugar remains stable/trending to target range (70–160 mg/dL). No correction bolus needed.",
         "forecast_60": f60,
         "forecast_90": f90,
         "forecast_120": f120,
