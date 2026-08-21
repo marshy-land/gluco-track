@@ -1,5 +1,7 @@
 import os
 import threading
+from datetime import datetime, timezone
+from typing import Optional, Dict, Any, List, Union
 import psycopg2
 import psycopg2.extras
 from psycopg2.extras import execute_values
@@ -557,61 +559,339 @@ def get_health_metrics(limit_hours=720, metric_type=None):
 
 def get_recent_sleep_summary(hours=48):
     """
-    Calculates summary of recent sleep from health_sessions:
-    - total duration in last 24h/48h
-    - most recent sleep start & end
-    - primary sleep vs nap sessions
-    - sleep deficit indicator
+    Calculates summary of recent sleep from health_sessions and health_metrics:
+    - leverages circadian_analysis.py for sleep architecture, circadian phase, RHR dipping, and dynamic ISF modifier
+    - maintains full backward compatibility for all existing consumers
     """
     sessions = get_health_sessions(limit_hours=hours, session_type="sleep")
+    metrics = get_health_metrics(limit_hours=hours, metric_type="heart_rate")
+
     if not sessions:
         return {
             "has_data": False,
             "total_sleep_hours_24h": 0.0,
+            "isf_modifier": 1.0,
             "latest_session": None,
             "sessions": [],
+            "session_count": 0,
             "sleep_quality_rating": "unknown",
-            "lifestyle_impact_note": "No Google Fit sleep data recorded yet."
+            "lifestyle_impact_note": "No Google Fit sleep data recorded yet.",
+            "efficiency_percent": 0.0,
+            "deep_sleep_pct": 0.0,
+            "rem_sleep_pct": 0.0,
+            "light_sleep_pct": 0.0,
+            "deep_rem_ratio": 0.0,
+            "rhr_dipping_pct": None,
+            "chronotype": "Unknown",
+            "sleep_midpoint": None
         }
 
-    total_minutes_24h = 0.0
-    now = datetime.now(timezone.utc)
-    for s in sessions:
-        st = s['start_time']
-        if isinstance(st, datetime) and st.tzinfo is None:
-            st = st.replace(tzinfo=timezone.utc)
-        dur = s.get('duration_minutes') or 0.0
-        if (now - st).total_seconds() <= 86400:
-            total_minutes_24h += dur
+    from circadian_analysis import (
+        calculate_sleep_stage_analytics,
+        calculate_circadian_phase,
+        calculate_nocturnal_rhr_metrics,
+        calculate_dynamic_isf_modifier
+    )
 
-    total_hours_24h = round(total_minutes_24h / 60.0, 1)
-    
-    # Assess sleep quality & impact on insulin sensitivity
-    if total_hours_24h >= 7.0:
-        quality = "Optimal"
-        impact_note = f"Well-rested ({total_hours_24h}h). Baseline insulin sensitivity intact."
-        isf_modifier = 1.0
-    elif total_hours_24h >= 5.5:
-        quality = "Moderate"
-        impact_note = f"Mild sleep reduction ({total_hours_24h}h). Slight insulin resistance possible."
-        isf_modifier = 1.05 # 5% higher BG rise / mild resistance
-    else:
-        quality = "Deficit"
-        impact_note = f"Sleep deficit ({total_hours_24h}h). Elevated cortisol/growth hormone may reduce insulin sensitivity ~10-15%."
-        isf_modifier = 1.12 # 12% resistance
+    stage_analytics = calculate_sleep_stage_analytics(sessions)
+    circadian_phase = calculate_circadian_phase(sessions)
+    rhr_metrics = calculate_nocturnal_rhr_metrics(metrics, sleep_sessions=sessions)
+    isf_data = calculate_dynamic_isf_modifier(sleep_summary=stage_analytics, rhr_summary=rhr_metrics)
+
+    latest_s = sessions[0] if sessions else None
+    latest_session_dict = None
+    if latest_s:
+        latest_session_dict = {
+            "start": latest_s['start_time'].isoformat() if isinstance(latest_s.get('start_time'), datetime) else latest_s.get('start_time'),
+            "end": latest_s['end_time'].isoformat() if isinstance(latest_s.get('end_time'), datetime) else latest_s.get('end_time'),
+            "duration_minutes": latest_s.get('duration_minutes', 0),
+            "type": latest_s.get('session_type', 'sleep'),
+            "name": latest_s.get('session_name', 'Sleep')
+        }
+
+    total_hours = stage_analytics["total_sleep_hours"]
+    efficiency = stage_analytics["efficiency_percent"]
+    deep_pct = stage_analytics["deep_sleep_percent"]
+    rem_pct = stage_analytics["rem_sleep_percent"]
+    light_pct = stage_analytics["light_sleep_percent"]
+    deep_rem_ratio = stage_analytics["restorative_ratio"]
 
     return {
         "has_data": True,
-        "total_sleep_hours_24h": total_hours_24h,
-        "isf_modifier": isf_modifier,
-        "sleep_quality_rating": quality,
-        "lifestyle_impact_note": impact_note,
-        "latest_session": {
-            "start": sessions[0]['start_time'].isoformat() if isinstance(sessions[0]['start_time'], datetime) else sessions[0]['start_time'],
-            "end": sessions[0]['end_time'].isoformat() if isinstance(sessions[0]['end_time'], datetime) else sessions[0]['end_time'],
-            "duration_minutes": sessions[0].get('duration_minutes', 0),
-            "type": sessions[0].get('session_type', 'sleep'),
-            "name": sessions[0].get('session_name', 'Sleep')
-        } if sessions else None,
-        "session_count": len(sessions)
+        "total_sleep_hours_24h": total_hours,
+        "isf_modifier": isf_data["isf_modifier"],
+        "sleep_quality_rating": stage_analytics["quality_rating"],
+        "lifestyle_impact_note": isf_data["lifestyle_impact_note"],
+        "efficiency_percent": efficiency,
+        "deep_sleep_pct": deep_pct,
+        "rem_sleep_pct": rem_pct,
+        "light_sleep_pct": light_pct,
+        "deep_rem_ratio": deep_rem_ratio,
+        "rhr_dipping_pct": rhr_metrics["dipping_percent"],
+        "chronotype": circadian_phase["chronotype"],
+        "sleep_midpoint": circadian_phase["sleep_midpoint"],
+        "latest_session": latest_session_dict,
+        "sessions": sessions,
+        "session_count": stage_analytics["session_count"],
+        "analytics": stage_analytics,
+        "rhr_metrics": rhr_metrics,
+        "isf_breakdown": isf_data
     }
+
+
+# =============================================================================
+# MEDICATION MANAGEMENT (MedFlowAssist & Ecosystem)
+# =============================================================================
+
+def get_medication_presets(active_only: bool = True) -> List[Dict[str, Any]]:
+    """Retrieves all medication presets ordered alphabetically by name."""
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if active_only:
+                cur.execute(
+                    "SELECT id, name, default_dose, dose_unit, is_active, created_at "
+                    "FROM medication_types WHERE is_active = TRUE ORDER BY name ASC;"
+                )
+            else:
+                cur.execute(
+                    "SELECT id, name, default_dose, dose_unit, is_active, created_at "
+                    "FROM medication_types ORDER BY name ASC;"
+                )
+            return cur.fetchall()
+    finally:
+        conn.close()
+
+
+def get_medication_preset_by_id(preset_id: int) -> Optional[Dict[str, Any]]:
+    """Fetches a specific medication preset by primary key."""
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, name, default_dose, dose_unit, is_active, created_at "
+                "FROM medication_types WHERE id = %s;",
+                (preset_id,)
+            )
+            return cur.fetchone()
+    finally:
+        conn.close()
+
+
+def get_medication_preset_by_name(name: str) -> Optional[Dict[str, Any]]:
+    """Fetches a medication preset using case-insensitive name lookup."""
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                "SELECT id, name, default_dose, dose_unit, is_active, created_at "
+                "FROM medication_types WHERE LOWER(name) = LOWER(%s);",
+                (name.strip(),)
+            )
+            return cur.fetchone()
+    finally:
+        conn.close()
+
+
+def add_medication_preset(name: str, default_dose: float, dose_unit: str) -> int:
+    """
+    Inserts a new medication preset or updates an existing one (case-insensitive).
+    Reactivates soft-deleted presets (is_active = TRUE).
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO medication_types (name, default_dose, dose_unit, is_active)
+                VALUES (%s, %s, %s, TRUE)
+                ON CONFLICT (LOWER(name)) DO UPDATE 
+                SET name = EXCLUDED.name,
+                    default_dose = EXCLUDED.default_dose,
+                    dose_unit = EXCLUDED.dose_unit,
+                    is_active = TRUE
+                RETURNING id;
+                """,
+                (name.strip(), default_dose, dose_unit.strip())
+            )
+            med_id = cur.fetchone()[0]
+        conn.commit()
+        return med_id
+    finally:
+        conn.close()
+
+
+def delete_medication_preset(name_or_id: Union[str, int]) -> bool:
+    """
+    Soft-deletes a medication preset by ID or case-insensitive name (sets is_active = FALSE).
+    Returns True if a preset was found and deactivated, False otherwise.
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            if isinstance(name_or_id, int) or (isinstance(name_or_id, str) and str(name_or_id).strip().isdigit()):
+                cur.execute(
+                    "UPDATE medication_types SET is_active = FALSE WHERE id = %s AND is_active = TRUE RETURNING id;",
+                    (int(name_or_id),)
+                )
+            else:
+                cur.execute(
+                    "UPDATE medication_types SET is_active = FALSE WHERE LOWER(name) = LOWER(%s) AND is_active = TRUE RETURNING id;",
+                    (str(name_or_id).strip(),)
+                )
+            row = cur.fetchone()
+        conn.commit()
+        return row is not None
+    finally:
+        conn.close()
+
+
+def log_medication_dose(
+    medication_id: int,
+    dose_taken: float,
+    timestamp: Optional[datetime] = None,
+    notes: Optional[str] = None
+) -> int:
+    """Logs a single medication intake entry into medication_logs."""
+    ts = timestamp or datetime.now(timezone.utc)
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO medication_logs (medication_id, timestamp, dose_taken, notes)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id;
+                """,
+                (medication_id, ts, dose_taken, notes)
+            )
+            log_id = cur.fetchone()[0]
+        conn.commit()
+        return log_id
+    finally:
+        conn.close()
+
+
+def get_recent_med_logs(
+    limit: int = 15,
+    medication_name: Optional[str] = None,
+    medication_id: Optional[int] = None,
+    hours: Optional[int] = None,
+    limit_hours: Optional[int] = None
+) -> List[Dict[str, Any]]:
+    """
+    Fetches medication intake logs in reverse chronological order (newest first).
+    Supports filtering by medication name (case-insensitive substring/exact), ID, or time window.
+    """
+    effective_hours = hours if hours is not None else limit_hours
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            query = """
+                SELECT 
+                    l.id,
+                    l.medication_id,
+                    t.name AS name,
+                    t.dose_unit,
+                    l.dose_taken,
+                    l.timestamp,
+                    l.notes,
+                    l.created_at
+                FROM medication_logs l
+                JOIN medication_types t ON l.medication_id = t.id
+                WHERE 1=1
+            """
+            params: List[Any] = []
+
+            if medication_id is not None:
+                query += " AND l.medication_id = %s"
+                params.append(medication_id)
+            elif medication_name:
+                query += " AND (LOWER(t.name) = LOWER(%s) OR t.name ILIKE %s)"
+                params.extend([medication_name.strip(), f"%{medication_name.strip()}%"])
+
+            if effective_hours is not None and effective_hours > 0:
+                query += " AND l.timestamp >= NOW() - INTERVAL %s"
+                params.append(f"{effective_hours} hours")
+
+            query += " ORDER BY l.timestamp DESC LIMIT %s;"
+            params.append(limit)
+
+            cur.execute(query, tuple(params))
+            return cur.fetchall()
+    finally:
+        conn.close()
+
+
+def get_medication_summary(
+    medication_name: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Aggregates active medication types with:
+    - Default preset dosage and unit
+    - Most recent intake timestamp, dose taken, and notes
+    - 24-hour intake count and total dosage amount
+    """
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            query = """
+                WITH recent_24h AS (
+                    SELECT 
+                        medication_id,
+                        COUNT(*) AS count_24h,
+                        SUM(dose_taken) AS total_dose_24h
+                    FROM medication_logs
+                    WHERE timestamp >= NOW() - INTERVAL '24 hours'
+                    GROUP BY medication_id
+                ),
+                latest_doses AS (
+                    SELECT DISTINCT ON (medication_id)
+                        medication_id,
+                        timestamp AS last_timestamp,
+                        dose_taken AS last_dose_taken,
+                        notes AS last_notes
+                    FROM medication_logs
+                    ORDER BY medication_id, timestamp DESC
+                )
+                SELECT 
+                    t.id,
+                    t.name,
+                    t.default_dose,
+                    t.dose_unit,
+                    t.is_active,
+                    ld.last_timestamp,
+                    ld.last_dose_taken,
+                    ld.last_notes,
+                    COALESCE(r24.count_24h, 0) AS count_24h,
+                    COALESCE(r24.total_dose_24h, 0.0) AS total_dose_24h
+                FROM medication_types t
+                LEFT JOIN latest_doses ld ON t.id = ld.medication_id
+                LEFT JOIN recent_24h r24 ON t.id = r24.medication_id
+                WHERE t.is_active = TRUE
+            """
+            params: List[Any] = []
+            if medication_name:
+                query += " AND (LOWER(t.name) = LOWER(%s) OR t.name ILIKE %s)"
+                params.extend([medication_name.strip(), f"%{medication_name.strip()}%"])
+
+            query += " ORDER BY t.name ASC;"
+
+            cur.execute(query, tuple(params) if params else None)
+            return cur.fetchall()
+    finally:
+        conn.close()
+
+
+def delete_medication_log(log_id: int) -> bool:
+    """Deletes a single medication log entry by primary key ID."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM medication_logs WHERE id = %s RETURNING id;", (log_id,))
+            deleted = cur.fetchone()
+        conn.commit()
+        return deleted is not None
+    finally:
+        conn.close()
+

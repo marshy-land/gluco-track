@@ -1,3 +1,10 @@
+"""
+telegram_scheduler.py
+Proactive Assistant Scheduler & Lantus Routine Monitor.
+
+Runs periodic gentle check-ins and urgent glucose alerts.
+"""
+
 import time
 import threading
 from datetime import datetime, timezone, timedelta
@@ -28,6 +35,7 @@ GENTLE_PROMPTS = {
 # Progressive delays between checks in minutes: +45m -> +75m -> +120m
 PROGRESSIVE_DELAYS = [45, 75, 120]
 
+
 def check_and_send_scheduled_alerts():
     """
     Periodic monitor with continuous, gentle, progressive check-ins and urgent-only alerts.
@@ -54,15 +62,15 @@ def check_and_send_scheduled_alerts():
     bg_val = f"{summary['glucose']:.0f}"
 
     # --- 1. Twice-Daily Scheduled Openings (06:00 AM & 18:00 PM EST) ---
-    
+
     # Morning Window (06:00 AM - 06:15 AM EST)
     if now_est.hour == 6 and now_est.minute < 15 and not ls["morning"]["taken"]:
         if last_reminders.get("morning_date") != today_str:
             msg = GENTLE_PROMPTS["morning"][0].format(bg=bg_val)
             keyboard = {
                 "inline_keyboard": [
-                    [{"text": "✓ Done (13.0 U)", "callback_data": "took_lantus:13.0"}],
-                    [{"text": "⏳ Later", "callback_data": "snooze:60"}, {"text": "✕ Skip today", "callback_data": "skip_dose"}]
+                    [{"text": "✓ Done (13.0 U)", "callback_data": "gt:lantus:13.0"}],
+                    [{"text": "⏳ Later", "callback_data": "gt:snooze:60"}, {"text": "✕ Skip today", "callback_data": "gt:skip"}]
                 ]
             }
             send_telegram_message(msg, reply_markup=keyboard)
@@ -84,8 +92,8 @@ def check_and_send_scheduled_alerts():
             msg = GENTLE_PROMPTS["evening"][0].format(bg=bg_val)
             keyboard = {
                 "inline_keyboard": [
-                    [{"text": "✓ Done (13.0 U)", "callback_data": "took_lantus:13.0"}],
-                    [{"text": "⏳ Later", "callback_data": "snooze:60"}, {"text": "✕ Skip today", "callback_data": "skip_dose"}]
+                    [{"text": "✓ Done (13.0 U)", "callback_data": "gt:lantus:13.0"}],
+                    [{"text": "⏳ Later", "callback_data": "gt:snooze:60"}, {"text": "✕ Skip today", "callback_data": "gt:skip"}]
                 ]
             }
             send_telegram_message(msg, reply_markup=keyboard)
@@ -112,7 +120,7 @@ def check_and_send_scheduled_alerts():
                     # Check if a long-acting dose was logged today since sent_at
                     sent_str = pending.get("sent_at", "")
                     sent_dt = datetime.fromisoformat(sent_str.replace("Z", "+00:00")) if sent_str else now_utc - timedelta(hours=6)
-                    
+
                     recent_doses = db.get_insulin_history(12, include_imputed=False)
                     dose_logged = False
                     for d in recent_doses:
@@ -132,8 +140,8 @@ def check_and_send_scheduled_alerts():
 
                         keyboard = {
                             "inline_keyboard": [
-                                [{"text": "✓ Done (13.0 U)", "callback_data": "took_lantus:13.0"}],
-                                [{"text": "⏳ Later", "callback_data": "snooze:60"}, {"text": "✕ Skip today", "callback_data": "skip_dose"}]
+                                [{"text": "✓ Done (13.0 U)", "callback_data": "gt:lantus:13.0"}],
+                                [{"text": "⏳ Later", "callback_data": "gt:snooze:60"}, {"text": "✕ Skip today", "callback_data": "gt:skip"}]
                             ]
                         }
                         send_telegram_message(msg, reply_markup=keyboard)
@@ -160,7 +168,7 @@ def check_and_send_scheduled_alerts():
     bg = summary["glucose"]
     iob = summary["iob"]
     preds = summary.get("predictions", [])
-    
+
     f30_60 = [p for p in preds if 30 <= p.get('minutes', 0) <= 60]
     min_f = min([p['value'] for p in f30_60]) if f30_60 else bg
     max_f = max([p['value'] for p in f30_60]) if f30_60 else bg
@@ -203,27 +211,28 @@ def check_and_send_scheduled_alerts():
                     f"👉 {corr_txt}."
                 )
                 alert_type = "urgent_high"
-                
+
             keyboard = None
             if not is_urgent_low and summary.get("correction", 0.0) > 0:
                 corr_val = summary.get("correction", 0.0)
                 keyboard = {
                     "inline_keyboard": [
-                        [{"text": f"✓ Log {corr_val:.1f} U Correction", "callback_data": f"took_correction:{corr_val:.1f}"}]
+                        [{"text": f"✓ Log {corr_val:.1f} U Correction", "callback_data": f"gt:corr:{corr_val:.1f}"}]
                     ]
                 }
 
             res = send_telegram_message(msg, reply_markup=keyboard)
-            
+
             if keyboard and res and res.get("success") and res.get("result"):
                 from telegram_bot import schedule_message_deletion
                 schedule_message_deletion(res["result"]["message_id"], minutes=10)
-                
+
             db.set_system_setting("last_proactive_alert", {
                 "timestamp": now_utc.isoformat(),
                 "type": alert_type,
                 "glucose": bg
             })
+
 
 def scheduler_worker_loop():
     """Background loop running every 60 seconds."""
@@ -238,6 +247,7 @@ def scheduler_worker_loop():
             print(f"[TelegramScheduler] Error in loop: {e}")
         time.sleep(60)
 
+
 def start_telegram_scheduler():
     """Spawns the background scheduler and polling daemon threads."""
     global _scheduler_running, _scheduler_thread
@@ -247,6 +257,7 @@ def start_telegram_scheduler():
     _scheduler_running = True
     _scheduler_thread = threading.Thread(target=scheduler_worker_loop, daemon=True)
     _scheduler_thread.start()
+
 
 def stop_telegram_scheduler():
     """Stops the background scheduler thread."""

@@ -1,8 +1,9 @@
 import os
 import shutil
 import tempfile
+import math
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Any, Dict, List
 from pydantic import BaseModel
 from fastapi import FastAPI, File, UploadFile, Query, HTTPException, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -92,6 +93,9 @@ def api_insulin_history(
             d['timestamp'] = d['timestamp'].isoformat()
         if 'is_imputed' not in d or d['is_imputed'] is None:
             d['is_imputed'] = False
+        for k, v in list(d.items()):
+            if isinstance(v, float) and (math.isinf(v) or math.isnan(v)):
+                d[k] = None
 
     if include_imputed:
         try:
@@ -723,39 +727,258 @@ def api_send_custom_alert(req: CustomAlertRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# --- Multi-Bot Ingress Webhook Routes & Response Normalizer ---
+
+def normalize_webhook_response(res: Any = None, default_action: str = "processed") -> dict:
+    """Ensures consistent {"status": ..., "action": ..., "details": ...} JSON structure."""
+    if not isinstance(res, dict):
+        return {"status": "ok", "action": default_action, "details": {}}
+
+    status = res.get("status", "ok")
+    action = res.get("action", default_action)
+
+    details = res.get("details")
+    if not isinstance(details, dict):
+        details = {k: v for k, v in res.items() if k not in ["status", "action"]}
+
+    return {
+        "status": status,
+        "action": action,
+        "details": details
+    }
+
+
+def _validate_webhook_secret(request: Request, expected_secret: Optional[str]) -> bool:
+    if not expected_secret or request is None:
+        return True
+    header_secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+    return header_secret == expected_secret
+
+
 @app.post("/api/telegram/webhook")
 async def api_telegram_webhook(request: Request = None):
-    """Processes incoming updates and button clicks from Telegram Webhook."""
+    """Processes incoming updates and button clicks for GlucoTrack Bot."""
     try:
         if request is None:
-            return {"status": "ok"}
-        update = await request.json()
+            return {"status": "ok", "action": "noop", "details": {}}
+
+        stored_cfg = db.get_system_setting("telegram_config") or {}
+        secret = os.getenv("TELEGRAM_WEBHOOK_SECRET") or stored_cfg.get("secret_token")
+        if not _validate_webhook_secret(request, secret):
+            raise HTTPException(status_code=403, detail="Invalid webhook secret token.")
+
+        try:
+            body_bytes = await request.body()
+            if not body_bytes or not body_bytes.strip():
+                return {"status": "error", "action": "invalid_json", "details": {"message": "Empty request body"}}
+            update = await request.json()
+        except Exception:
+            return {"status": "error", "action": "invalid_json", "details": {"message": "Invalid JSON body"}}
+
+        if not update or not isinstance(update, dict):
+            return {"status": "ok", "action": "noop", "details": {}}
+
         from telegram_bot import handle_telegram_update
-        return handle_telegram_update(update) or {"status": "ok"}
+        res = handle_telegram_update(update)
+        return normalize_webhook_response(res, default_action="telegram_update_processed")
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Error handling Telegram webhook: {e}")
-        return {"status": "error", "message": str(e)}
+        print(f"[GlucoTrack Ingress Error]: {e}")
+        return {"status": "error", "action": "handler_error", "details": {"message": str(e), "type": type(e).__name__}}
+
 
 @app.post("/api/medbot/webhook")
 async def api_medbot_webhook(request: Request = None):
-    """Processes incoming updates for the standalone Medication Tracker Bot."""
+    """Processes incoming updates for MedFlowAssist Bot (@medflowassist_bot)."""
     try:
         if request is None:
-            return {"status": "ok"}
-        update = await request.json()
+            return {"status": "ok", "action": "noop", "details": {}}
+
+        stored_cfg = db.get_system_setting("med_bot_config") or {}
+        secret = os.getenv("MED_BOT_WEBHOOK_SECRET") or stored_cfg.get("secret_token")
+        if not _validate_webhook_secret(request, secret):
+            raise HTTPException(status_code=403, detail="Invalid webhook secret token.")
+
+        try:
+            body_bytes = await request.body()
+            if not body_bytes or not body_bytes.strip():
+                return {"status": "error", "action": "invalid_json", "details": {"message": "Empty request body"}}
+            update = await request.json()
+        except Exception:
+            return {"status": "error", "action": "invalid_json", "details": {"message": "Invalid JSON body"}}
+
+        if not update or not isinstance(update, dict):
+            return {"status": "ok", "action": "noop", "details": {}}
+
         from med_bot import handle_med_webhook
-        return handle_med_webhook(update)
+        res = handle_med_webhook(update)
+        return normalize_webhook_response(res, default_action="med_update_processed")
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Error handling Med Bot webhook: {e}")
+        print(f"[MedFlow Ingress Error]: {e}")
+        return {"status": "error", "action": "handler_error", "details": {"message": str(e), "type": type(e).__name__}}
+
+
+@app.post("/api/monkebot/webhook")
+async def api_monkebot_webhook(request: Request = None):
+    """Processes incoming updates for MonkeHelper Master Hub (@monkehelper_bot)."""
+    try:
+        if request is None:
+            return {"status": "ok", "action": "noop", "details": {}}
+
+        stored_cfg = db.get_system_setting("monke_bot_config") or {}
+        secret = os.getenv("MONKE_BOT_WEBHOOK_SECRET") or stored_cfg.get("secret_token")
+        if not _validate_webhook_secret(request, secret):
+            raise HTTPException(status_code=403, detail="Invalid webhook secret token.")
+
+        try:
+            body_bytes = await request.body()
+            if not body_bytes or not body_bytes.strip():
+                return {"status": "error", "action": "invalid_json", "details": {"message": "Empty request body"}}
+            update = await request.json()
+        except Exception:
+            return {"status": "error", "action": "invalid_json", "details": {"message": "Invalid JSON body"}}
+
+        if not update or not isinstance(update, dict):
+            return {"status": "ok", "action": "noop", "details": {}}
+
+        from monke_bot import handle_monke_webhook
+        res = handle_monke_webhook(update)
+        return normalize_webhook_response(res, default_action="monke_update_processed")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[MonkeHelper Ingress Error]: {e}")
+        return {"status": "error", "action": "handler_error", "details": {"message": str(e), "type": type(e).__name__}}
+
+
+@app.post("/api/biometrics/webhook")
+async def api_biometrics_webhook(request: Request = None):
+    """Processes incoming updates for Circadian & Biometrics Bot."""
+    try:
+        if request is None:
+            return {"status": "ok", "action": "noop", "details": {}}
+
+        stored_cfg = db.get_system_setting("biometrics_bot_config") or {}
+        secret = os.getenv("BIOMETRICS_BOT_WEBHOOK_SECRET") or stored_cfg.get("secret_token")
+        if not _validate_webhook_secret(request, secret):
+            raise HTTPException(status_code=403, detail="Invalid webhook secret token.")
+
+        try:
+            body_bytes = await request.body()
+            if not body_bytes or not body_bytes.strip():
+                return {"status": "error", "action": "invalid_json", "details": {"message": "Empty request body"}}
+            update = await request.json()
+        except Exception:
+            return {"status": "error", "action": "invalid_json", "details": {"message": "Invalid JSON body"}}
+
+        if not update or not isinstance(update, dict):
+            return {"status": "ok", "action": "noop", "details": {}}
+
+        from biometrics_bot import handle_biometrics_webhook
+        res = handle_biometrics_webhook(update)
+        return normalize_webhook_response(res, default_action="biometrics_update_processed")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Biometrics Ingress Error]: {e}")
+        return {"status": "error", "action": "handler_error", "details": {"message": str(e), "type": type(e).__name__}}
+
+
+# --- Multi-Bot Polling Status & Lifecycle Management ---
+
+@app.get("/api/bots/polling/status")
+def api_bots_polling_status(bot_id: Optional[str] = None):
+    """Returns diagnostic health and polling status of all registered bots."""
+    try:
+        from multi_bot_manager import multi_bot_manager
+        return {"status": "ok", "data": multi_bot_manager.get_status(bot_id=bot_id)}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/bots/polling/start")
+def api_bots_polling_start(bot_id: Optional[str] = None):
+    """Starts all bot polling workers or a specific bot."""
+    try:
+        from multi_bot_manager import multi_bot_manager
+        if bot_id:
+            res = multi_bot_manager.start_bot(bot_id)
+        else:
+            multi_bot_manager.start_all()
+            res = True
+        return {"status": "ok", "started": res}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/bots/polling/stop")
+def api_bots_polling_stop(bot_id: Optional[str] = None):
+    """Stops all bot polling workers or a specific bot."""
+    try:
+        from multi_bot_manager import multi_bot_manager
+        if bot_id:
+            res = multi_bot_manager.stop_bot(bot_id)
+        else:
+            multi_bot_manager.stop_all()
+            res = True
+        return {"status": "ok", "stopped": res}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/bots/polling/restart")
+def api_bots_polling_restart(bot_id: Optional[str] = None):
+    """Restarts bot polling workers."""
+    try:
+        from multi_bot_manager import multi_bot_manager
+        if bot_id:
+            res = multi_bot_manager.restart_bot(bot_id)
+        else:
+            multi_bot_manager.stop_all()
+            multi_bot_manager.start_all()
+            res = True
+        return {"status": "ok", "restarted": res}
+    except Exception as e:
         return {"status": "error", "message": str(e)}
 
 
 @app.on_event("startup")
 def on_app_startup():
-    """Starts background Telegram proactive monitor on application boot."""
+    """Starts background Telegram proactive monitor and long-polling daemon on application boot."""
     try:
         from telegram_scheduler import start_telegram_scheduler
         start_telegram_scheduler()
     except Exception as e:
         print(f"[AppStartup] Could not start Telegram scheduler: {e}")
+
+    try:
+        polling_enabled = os.getenv("ENABLE_BOT_POLLING", "false").lower() in ("true", "1", "yes")
+        if polling_enabled:
+            from multi_bot_manager import multi_bot_manager
+            multi_bot_manager.start_all()
+            print("[AppStartup] MultiBotPollingManager started.")
+    except Exception as e:
+        print(f"[AppStartup] Could not start MultiBotPollingManager: {e}")
+
+
+@app.on_event("shutdown")
+def on_app_shutdown():
+    """Performs clean graceful shutdown of background polling threads and schedulers."""
+    try:
+        from multi_bot_manager import multi_bot_manager
+        multi_bot_manager.stop_all(timeout=5.0)
+        print("[AppShutdown] MultiBotPollingManager stopped.")
+    except Exception as e:
+        print(f"[AppShutdown] Error stopping MultiBotPollingManager: {e}")
+
+    try:
+        from telegram_scheduler import stop_telegram_scheduler
+        stop_telegram_scheduler()
+        print("[AppShutdown] Telegram scheduler stopped.")
+    except Exception as e:
+        print(f"[AppShutdown] Error stopping Telegram scheduler: {e}")
+
 
