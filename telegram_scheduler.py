@@ -213,7 +213,12 @@ def check_and_send_scheduled_alerts():
                     ]
                 }
 
-            send_telegram_message(msg, reply_markup=keyboard)
+            res = send_telegram_message(msg, reply_markup=keyboard)
+            
+            if keyboard and res and res.get("success") and res.get("result"):
+                from telegram_bot import schedule_message_deletion
+                schedule_message_deletion(res["result"]["message_id"], minutes=10)
+                
             db.set_system_setting("last_proactive_alert", {
                 "timestamp": now_utc.isoformat(),
                 "type": alert_type,
@@ -227,6 +232,8 @@ def scheduler_worker_loop():
     while _scheduler_running:
         try:
             check_and_send_scheduled_alerts()
+            from telegram_bot import process_message_deletions
+            process_message_deletions()
         except Exception as e:
             print(f"[TelegramScheduler] Error in loop: {e}")
         time.sleep(60)

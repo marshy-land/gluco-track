@@ -712,6 +712,9 @@ def api_send_custom_alert(req: CustomAlertRequest):
             
         res = send_telegram_message(msg, reply_markup=keyboard)
         if res.get("success"):
+            if keyboard and res.get("result"):
+                from telegram_bot import schedule_message_deletion
+                schedule_message_deletion(res["result"]["message_id"], minutes=10)
             return {"success": True, "message": "Custom alert sent successfully!"}
         else:
             raise HTTPException(status_code=400, detail=res.get("error", "Failed to send message via Telegram API."))

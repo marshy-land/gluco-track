@@ -107,6 +107,65 @@ def edit_message_text(chat_id, message_id, text, reply_markup=None, parse_mode="
     except Exception:
         pass
 
+def delete_telegram_message(message_id, chat_id=None):
+    """Deletes a Telegram message."""
+    config = get_telegram_config()
+    token = config.get("bot_token")
+    if not chat_id:
+        chat_id = config.get("chat_id")
+    if not token or not chat_id:
+        return
+    url = f"{TELEGRAM_API_BASE}{token}/deleteMessage"
+    try:
+        requests.post(url, json={"chat_id": chat_id, "message_id": message_id}, timeout=8)
+    except Exception:
+        pass
+
+def schedule_message_deletion(message_id, minutes=10):
+    """Schedules a message ID to be deleted if not acted upon."""
+    import db
+    from datetime import datetime, timezone, timedelta
+    pending = db.get_system_setting("pending_deletions") or []
+    pending.append({
+        "message_id": message_id,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
+    })
+    db.set_system_setting("pending_deletions", pending)
+
+def cancel_message_deletion(message_id):
+    """Cancels a pending message deletion (e.g. after user acts on it)."""
+    import db
+    pending = db.get_system_setting("pending_deletions") or []
+    new_pending = [p for p in pending if p["message_id"] != message_id]
+    if len(new_pending) != len(pending):
+        db.set_system_setting("pending_deletions", new_pending)
+
+def process_message_deletions():
+    """Processes scheduled message deletions."""
+    import db
+    from datetime import datetime, timezone
+    pending = db.get_system_setting("pending_deletions") or []
+    if not pending:
+        return
+        
+    now_utc = datetime.now(timezone.utc)
+    new_pending = []
+    changed = False
+    
+    for p in pending:
+        try:
+            exp = datetime.fromisoformat(p["expires_at"])
+            if now_utc >= exp:
+                delete_telegram_message(p["message_id"])
+                changed = True
+            else:
+                new_pending.append(p)
+        except Exception:
+            changed = True # Remove invalid entries
+            
+    if changed:
+        db.set_system_setting("pending_deletions", new_pending)
+
 def download_telegram_photo(file_id):
     """Downloads a photo sent in Telegram by its file_id."""
     config = get_telegram_config()
@@ -236,6 +295,7 @@ def handle_telegram_update(update):
                 db.insert_insulin_doses([dose_dict])
 
             answer_callback_query(cb_id, f"Recorded {carbs:.0f}g carbs & {bolus:.1f}U bolus.")
+            cancel_message_deletion(msg_id)
             bolus_text = f" + <b>{bolus:.1f}U</b>" if bolus > 0 else ""
             edit_message_text(
                 chat_id=chat_id,
@@ -294,6 +354,7 @@ def handle_telegram_update(update):
             db.insert_insulin_doses([dose_dict])
             answer_callback_query(cb_id, f"Recorded {units}U.")
             db.set_system_setting("pending_compliance_check", None)
+            cancel_message_deletion(msg_id)
 
             edit_message_text(
                 chat_id=chat_id,
@@ -309,6 +370,7 @@ def handle_telegram_update(update):
             except Exception:
                 mins = 60
             answer_callback_query(cb_id, "Took note.")
+            cancel_message_deletion(msg_id)
             
             snooze_until = (datetime.now(timezone.utc) + timedelta(minutes=mins)).isoformat()
             pending = db.get_system_setting("pending_compliance_check") or {}
@@ -325,12 +387,17 @@ def handle_telegram_update(update):
         # E. Skip / Dismiss
         elif cb_data in ["skip_dose", "dismiss"]:
             answer_callback_query(cb_id, "Noted.")
+            cancel_message_deletion(msg_id)
             db.set_system_setting("pending_compliance_check", None)
-            edit_message_text(
-                chat_id=chat_id,
-                message_id=msg_id,
-                text=f"✕ <i>Noted for today by {actor_name}</i>"
-            )
+            
+            if cb_data == "dismiss":
+                delete_telegram_message(msg_id, chat_id)
+            else:
+                edit_message_text(
+                    chat_id=chat_id,
+                    message_id=msg_id,
+                    text=f"✕ <i>Noted for today by {actor_name}</i>"
+                )
             return {"status": "ok", "action": "dismissed"}
 
         return {"status": "ok"}
@@ -406,6 +473,25 @@ def handle_telegram_update(update):
 
         clean_text = re.sub(r'@[A-Za-z0-9_]+bot', '', raw_text, flags=re.IGNORECASE).strip()
         lower = clean_text.lower()
+        
+        MAIN_MENU_KEYBOARD = {
+            "keyboard": [
+                [{"text": "📊 Status"}, {"text": "🍎 Log Food"}],
+                [{"text": "💉 Check Dose"}, {"text": "⏰ Lantus Schedule"}]
+            ],
+            "resize_keyboard": True,
+            "is_persistent": True
+        }
+
+        # Handle GUI buttons as commands
+        if lower == "📊 status":
+            lower = "/status"
+        elif lower == "🍎 log food":
+            lower = "/food"
+        elif lower == "💉 check dose":
+            lower = "/dose"
+        elif lower == "⏰ lantus schedule":
+            lower = "/schedule"
 
         config = get_telegram_config()
         if not config.get("chat_id") or lower.startswith("/setgroup") or lower.startswith("/link"):
@@ -447,7 +533,9 @@ def handle_telegram_update(update):
                     [{"text": f"Log {carbs_g:.0f}g Only", "callback_data": f"log_meal:{carbs_g:.1f}:0.0"}, {"text": "✕", "callback_data": "dismiss"}]
                 ]
             }
-            send_telegram_message(card_text, reply_markup=keyboard, chat_id=chat_id)
+            res = send_telegram_message(card_text, reply_markup=keyboard, chat_id=chat_id)
+            if res and res.get("success") and res.get("result"):
+                schedule_message_deletion(res["result"]["message_id"], minutes=10)
             return {"status": "ok"}
 
         # B. Direct Dose Logging (e.g. "took 13u lantus")
@@ -511,7 +599,7 @@ def handle_telegram_update(update):
                 "• 💉 <code>/dose</code> — Bolus & correction check\n"
                 "• ⏰ <code>/schedule</code> — Lantus (6 AM / 6 PM EST) status"
             )
-            send_telegram_message(reply, chat_id=chat_id)
+            send_telegram_message(reply, reply_markup=MAIN_MENU_KEYBOARD, chat_id=chat_id)
             return {"status": "ok"}
 
         # /status, /bg, or glucose questions
@@ -597,7 +685,9 @@ def handle_telegram_update(update):
                         [{"text": "⏳ Later", "callback_data": "snooze:60"}, {"text": "✕ Skip", "callback_data": "skip_dose"}]
                     ]
                 }
-                send_telegram_message(reply, reply_markup=keyboard, chat_id=chat_id)
+                res = send_telegram_message(reply, reply_markup=keyboard, chat_id=chat_id)
+                if res and res.get("success") and res.get("result"):
+                    schedule_message_deletion(res["result"]["message_id"], minutes=10)
             else:
                 reply = (
                     f"🟢 <b>No Correction Needed (0.0 U)</b>\n"
