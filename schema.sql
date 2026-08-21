@@ -95,3 +95,26 @@ CREATE TABLE IF NOT EXISTS health_metrics (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_health_metrics_unique ON health_metrics (timestamp, metric_type);
 CREATE INDEX IF NOT EXISTS idx_health_metrics_timestamp ON health_metrics (timestamp DESC);
+
+-- Medication Tracker Tables
+CREATE TABLE IF NOT EXISTS medication_types (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    default_dose DOUBLE PRECISION,
+    dose_unit VARCHAR(50),
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_medication_types_name ON medication_types (LOWER(name));
+
+CREATE TABLE IF NOT EXISTS medication_logs (
+    id SERIAL PRIMARY KEY,
+    medication_id INTEGER REFERENCES medication_types(id) ON DELETE CASCADE,
+    timestamp TIMESTAMPTZ NOT NULL,
+    dose_taken DOUBLE PRECISION NOT NULL,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_medication_logs_timestamp ON medication_logs (timestamp DESC);

@@ -727,12 +727,26 @@ def api_send_custom_alert(req: CustomAlertRequest):
 async def api_telegram_webhook(request: Request = None):
     """Processes incoming updates and button clicks from Telegram Webhook."""
     try:
+        if request is None:
+            return {"status": "ok"}
+        update = await request.json()
         from telegram_bot import handle_telegram_update
-        data = await request.json()
-        result = handle_telegram_update(data)
-        return result or {"status": "ok"}
+        return handle_telegram_update(update) or {"status": "ok"}
     except Exception as e:
-        print(f"[TelegramWebhook] Error handling update: {e}")
+        print(f"Error handling Telegram webhook: {e}")
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/medbot/webhook")
+async def api_medbot_webhook(request: Request = None):
+    """Processes incoming updates for the standalone Medication Tracker Bot."""
+    try:
+        if request is None:
+            return {"status": "ok"}
+        update = await request.json()
+        from med_bot import handle_med_webhook
+        return handle_med_webhook(update)
+    except Exception as e:
+        print(f"Error handling Med Bot webhook: {e}")
         return {"status": "error", "message": str(e)}
 
 
