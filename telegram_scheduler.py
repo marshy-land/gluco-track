@@ -203,8 +203,17 @@ def check_and_send_scheduled_alerts():
                     f"👉 {corr_txt}."
                 )
                 alert_type = "urgent_high"
+                
+            keyboard = None
+            if not is_urgent_low and summary.get("correction", 0.0) > 0:
+                corr_val = summary.get("correction", 0.0)
+                keyboard = {
+                    "inline_keyboard": [
+                        [{"text": f"✓ Log {corr_val:.1f} U Correction", "callback_data": f"took_correction:{corr_val:.1f}"}]
+                    ]
+                }
 
-            send_telegram_message(msg)
+            send_telegram_message(msg, reply_markup=keyboard)
             db.set_system_setting("last_proactive_alert", {
                 "timestamp": now_utc.isoformat(),
                 "type": alert_type,

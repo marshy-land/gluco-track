@@ -679,6 +679,47 @@ def api_send_telegram_test():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+class CustomAlertRequest(BaseModel):
+    message: str
+
+@app.post("/api/telegram/custom_alert")
+def api_send_custom_alert(req: CustomAlertRequest):
+    """Sends a customizable alert based on projected dose need."""
+    try:
+        from telegram_bot import send_telegram_message, get_live_patient_summary
+        summary = get_live_patient_summary()
+        
+        bg_text = f"{summary['glucose']:.0f} mg/dL" if summary else "Unknown"
+        iob = summary['iob'] if summary else 0.0
+        corr = summary.get("correction", 0.0) if summary else 0.0
+        
+        corr_txt = f"Projected Dose Need: <b>{corr:.1f} U</b>" if corr > 0 else "No correction needed currently."
+        
+        msg = (
+            f"🔔 <b>Custom Alert</b>\n"
+            f"<b>{bg_text}</b> • IOB: {iob:.1f} U\n"
+            f"👉 {corr_txt}\n\n"
+            f"<i>\"{req.message}\"</i>"
+        )
+        
+        keyboard = None
+        if corr > 0:
+            keyboard = {
+                "inline_keyboard": [
+                    [{"text": f"✓ Log {corr:.1f} U Correction", "callback_data": f"took_correction:{corr:.1f}"}]
+                ]
+            }
+            
+        res = send_telegram_message(msg, reply_markup=keyboard)
+        if res.get("success"):
+            return {"success": True, "message": "Custom alert sent successfully!"}
+        else:
+            raise HTTPException(status_code=400, detail=res.get("error", "Failed to send message via Telegram API."))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/telegram/webhook")
 async def api_telegram_webhook(request: Request = None):
     """Processes incoming updates and button clicks from Telegram Webhook."""

@@ -563,20 +563,30 @@ def handle_telegram_update(update):
                     f"🍎 <b>Safe Snack: ~{int(sc['grams'])}g carbs</b>\n"
                     f"BG: <b>{bg:.0f} mg/dL</b> • Active IOB: {summary['iob']:.2f} U"
                 )
-            send_telegram_message(reply, chat_id=chat_id)
+            send_telegram_message(reply, reply_markup=MAIN_MENU_KEYBOARD, chat_id=chat_id)
+            return {"status": "ok"}
+
+        # /carbs or /eat (Food logging override)
+        if lower.startswith("/log") or lower.startswith("/food"):
+            reply = (
+                "🍎 <b>Food Logging</b>\n\n"
+                "To log food, just send me a picture of your meal, or describe it textually like:\n"
+                "<i>\"Ate 2 slices of pizza and a diet coke\"</i>"
+            )
+            send_telegram_message(reply, reply_markup=MAIN_MENU_KEYBOARD, chat_id=chat_id)
             return {"status": "ok"}
 
         # /dose or /correction
-        if lower.startswith("/dose") or lower.startswith("/correction") or any(q in lower for q in ["how much insulin", "need a bolus", "correct", "high", "take insulin"]):
+        if lower.startswith("/dose") or lower.startswith("/insulin"):
             if not summary:
-                send_telegram_message("⚠️ No live data available.", chat_id=chat_id)
+                send_telegram_message("⚠️ No live data to calculate dose.", reply_markup=MAIN_MENU_KEYBOARD, chat_id=chat_id)
                 return {"status": "ok"}
 
-            corr = summary["correction"]
             bg = summary["glucose"]
             iob = summary["iob"]
+            corr = summary.get("correction", 0.0)
 
-            if corr > 0.0:
+            if corr > 0:
                 reply = (
                     f"💉 <b>Recommended Correction: {corr:.1f} U</b>\n"
                     f"BG: <b>{bg:.0f} mg/dL</b> (Target: 120) • IOB: {iob:.2f} U"
@@ -593,13 +603,13 @@ def handle_telegram_update(update):
                     f"🟢 <b>No Correction Needed (0.0 U)</b>\n"
                     f"BG: <b>{bg:.0f} mg/dL</b> • IOB: {iob:.2f} U"
                 )
-                send_telegram_message(reply, chat_id=chat_id)
+                send_telegram_message(reply, reply_markup=MAIN_MENU_KEYBOARD, chat_id=chat_id)
             return {"status": "ok"}
 
         # /schedule or /lantus
         if lower.startswith("/schedule") or lower.startswith("/lantus") or any(q in lower for q in ["when is the next dose", "next lantus", "lantus schedule"]):
             if not summary:
-                send_telegram_message("⚠️ No schedule data available.", chat_id=chat_id)
+                send_telegram_message("⚠️ No schedule data available.", reply_markup=MAIN_MENU_KEYBOARD, chat_id=chat_id)
                 return {"status": "ok"}
 
             ls = summary["lantus_schedule"]
@@ -622,7 +632,7 @@ def handle_telegram_update(update):
             return {"status": "ok"}
 
         # In group chats, ignore general chatter unless addressed or has diabetes keywords
-        if chat_type in ["group", "supergroup"] and not (raw_text.startswith("/") or "@" in raw_text or any(k in lower for k in ["glucose", "sugar", "insulin", "lantus", "carb", "eat", "snack", "dose", "correction", "bg", "food"])):
+        if chat_type in ["group", "supergroup"] and not (raw_text.startswith("/") or "@" in raw_text or any(k in lower for k in ["glucose", "sugar", "insulin", "lantus", "carb", "eat", "snack", "dose", "correction", "bg", "food", "status", "schedule"])):
             return {"status": "ignored"}
 
         # Fallback short status
@@ -631,12 +641,12 @@ def handle_telegram_update(update):
             reply = (
                 f"🟢 <b>{bg:.0f} mg/dL</b> • {time_str}\n"
                 f"IOB: {summary['iob']:.2f} U • Next Lantus: {summary['lantus_schedule']['next_dose']['name']} ({summary['lantus_schedule']['next_dose']['countdown']})\n"
-                f"<i>Use <code>/status</code>, <code>/carbs</code>, <code>/dose</code>, or send a meal photo!</i>"
+                f"<i>Use the buttons below to interact!</i>"
             )
         else:
-            reply = "Gluco Track Assistant active. Use /status to view readings."
+            reply = "Gluco Track Assistant active. Use the menu buttons to interact."
         
-        send_telegram_message(reply, chat_id=chat_id)
+        send_telegram_message(reply, reply_markup=MAIN_MENU_KEYBOARD, chat_id=chat_id)
         return {"status": "ok"}
 
     return {"status": "ok"}
