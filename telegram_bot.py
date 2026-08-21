@@ -147,8 +147,10 @@ def get_live_patient_summary():
 
         history = db.get_history(3)
         predictions = predict_glucose(history)
-        doses = db.get_insulin_history(4, include_imputed=True)
-        total_iob = calculate_iob(doses)
+        recent_doses = db.get_insulin_history(4, include_imputed=True)
+        # Only include imputed doses if confidence >= 95%
+        valid_doses = [d for d in recent_doses if not d.get('is_imputed') or d.get('confidence_score', 0.0) >= 0.95]
+        total_iob = calculate_iob(valid_doses)
 
         params = load_heuristics_params()
         bucket = get_time_of_day_bucket(latest['timestamp'])

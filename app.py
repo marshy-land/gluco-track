@@ -133,7 +133,8 @@ def api_predictions(
     recent_doses = get_insulin_history(4, include_imputed=True)
     
     confirmed_doses = [d for d in recent_doses if not d.get('is_imputed')]
-    estimated_doses = [d for d in recent_doses if d.get('is_imputed')]
+    # Only include estimated doses with >= 95% certainty in total active insulin
+    estimated_doses = [d for d in recent_doses if d.get('is_imputed') and d.get('confidence_score', 0.0) >= 0.95]
     
     iob_confirmed = calculate_iob(confirmed_doses)
     iob_estimated = calculate_iob(estimated_doses)

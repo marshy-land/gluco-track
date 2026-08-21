@@ -1656,20 +1656,20 @@
                 const correctionSubEl = document.getElementById('correction-box-sub');
                 const cardCorrection = document.getElementById('card-correction');
                 const insulinNeeded = data.suggested_correction || 0.0;
-                const f60 = (data.predictions && data.predictions.find(p => p.minutes === 60)) ? data.predictions.find(p => p.minutes === 60).value : data.current_glucose;
+                const f60Val = (data.predictions && data.predictions.find(p => p.minutes === 60)) ? data.predictions.find(p => p.minutes === 60).value : data.current_glucose;
 
                 if (correctionValEl) {
                     if (insulinNeeded > 0.0) {
                         correctionValEl.innerText = `${insulinNeeded.toFixed(1)} U`;
                         correctionValEl.style.color = '#3b82f6';
-                        correctionSubEl.innerText = `Preemptive dose (Forecast: ${Math.round(f60)} mg/dL)`;
+                        correctionSubEl.innerText = `Preemptive dose (Forecast: ${Math.round(f60Val)} mg/dL)`;
                         cardCorrection.style.background = 'rgba(59, 130, 246, 0.1)';
                         cardCorrection.style.borderColor = 'rgba(59, 130, 246, 0.3)';
                     } else {
                         correctionValEl.innerText = '0.0 U';
                         correctionValEl.style.color = '#10b981';
-                        correctionSubEl.innerText = (f60 && f60 < data.current_glucose && data.current_glucose > 140) 
-                            ? `Dropping to ~${Math.round(f60)} mg/dL (No dose needed)`
+                        correctionSubEl.innerText = (f60Val && f60Val < data.current_glucose && data.current_glucose > 140) 
+                            ? `Dropping to ~${Math.round(f60Val)} mg/dL (No dose needed)`
                             : 'In Target / Projected Normal';
                         cardCorrection.style.background = 'rgba(16, 185, 129, 0.06)';
                         cardCorrection.style.borderColor = 'rgba(16, 185, 129, 0.2)';
