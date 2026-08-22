@@ -1154,10 +1154,13 @@
                     }
                 }
 
-                let foodData = null;
+                let foodData = [];
                 try {
                     const foodRes = await fetch(`/api/food/history?hours=${hours}&include_imputed=true&_t=${Date.now()}`);
-                    foodData = await foodRes.json();
+                    if (foodRes.ok) {
+                        const parsedFood = await foodRes.json();
+                        foodData = Array.isArray(parsedFood) ? parsedFood : [];
+                    }
                 } catch (e) {
                     console.warn("Could not fetch food history:", e);
                     foodData = [];

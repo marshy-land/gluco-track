@@ -1,9 +1,13 @@
+import math
 from datetime import timedelta
 import pytz
 
 def _safe_float(val, default=0.0):
     try:
-        return float(val) if val is not None else default
+        f = float(val) if val is not None else default
+        if math.isnan(f) or math.isinf(f):
+            return default
+        return f
     except (ValueError, TypeError):
         return default
 
@@ -97,8 +101,7 @@ def detect_and_impute_missing_meals(sorted_readings, sorted_food_logs, min_confi
             c_shape = increasing_steps / total_steps
             
             # 3. C_rate: how fast did it rise? (mg/dL per minute)
-            # A rate > 2.0 mg/dL/min is very indicative of fast-acting carbs
-            rate = obs_rise / dt_mins
+            rate = obs_rise / max(dt_mins, 1.0)
             c_rate = min(1.0, max(0.0, (rate - 0.5) / 1.5))
             
             # 4. C_nadir: Ensure t_start is actually a valley (start of spike), not halfway up a mountain
@@ -118,10 +121,8 @@ def detect_and_impute_missing_meals(sorted_readings, sorted_food_logs, min_confi
                 except (ValueError, TypeError):
                     continue
 
-            confidence_score = round(
-                (0.35 * c_magnitude + 0.25 * c_shape + 0.20 * c_rate + 0.20 * c_nadir) / confidence_divisor,
-                2
-            )
+            raw_conf = (0.35 * c_magnitude + 0.25 * c_shape + 0.20 * c_rate + 0.20 * c_nadir) / max(confidence_divisor, 0.1)
+            confidence_score = round(min(1.0, max(0.0, raw_conf)), 2)
             
             if confidence_score >= min_confidence:
                 candidates.append({

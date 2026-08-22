@@ -272,25 +272,37 @@ async def log_food(entry: FoodEntry, background_tasks: BackgroundTasks):
 @app.get("/api/food/history")
 async def get_food_history(hours: int = 24, include_imputed: bool = False):
     try:
-        food_logs = db.get_food_history(limit_hours=hours, include_imputed=False) # Always get false from DB to prevent feedback loop
+        food_logs = db.get_food_history(limit_hours=hours, include_imputed=False)
+        all_food = list(food_logs) if food_logs else []
         
         if include_imputed:
-            # Generate missing meals on the fly
-            from carb_imputation import detect_and_impute_missing_meals
-            readings = db.get_history(limit_hours=hours)
-            imputed_meals = detect_and_impute_missing_meals(
-                sorted_readings=sorted(readings, key=lambda x: x['timestamp']),
-                sorted_food_logs=sorted(food_logs, key=lambda x: x['timestamp']),
-                min_confidence=0.50
-            )
-            # Merge and sort
-            all_food = food_logs + imputed_meals
-            all_food.sort(key=lambda x: x['timestamp'])
-            return all_food
+            try:
+                from carb_imputation import detect_and_impute_missing_meals
+                readings = db.get_history(limit_hours=hours)
+                imputed_meals = detect_and_impute_missing_meals(
+                    sorted_readings=sorted(readings, key=lambda x: x['timestamp']),
+                    sorted_food_logs=sorted(food_logs, key=lambda x: x['timestamp']),
+                    min_confidence=0.50
+                )
+                if imputed_meals:
+                    all_food.extend(imputed_meals)
+            except Exception as imp_err:
+                print(f"Error imputing meals: {imp_err}")
             
-        return food_logs
+        for f in all_food:
+            if isinstance(f.get('timestamp'), datetime):
+                f['timestamp'] = f['timestamp'].isoformat()
+            if 'is_imputed' not in f or f['is_imputed'] is None:
+                f['is_imputed'] = False
+            for k, v in list(f.items()):
+                if isinstance(v, float) and (math.isinf(v) or math.isnan(v)):
+                    f[k] = None
+
+        all_food.sort(key=lambda x: str(x.get('timestamp') or ''))
+        return all_food
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error fetching food history: {e}")
+        return []
 
 @app.get("/api/heuristics/status")
 def api_heuristics_status():
