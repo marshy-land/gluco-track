@@ -51,7 +51,12 @@ def check_and_run_training_background():
         print(f"[Auto-Trainer] Background training failed: {e}")
 
 
-# Serve visual dashboard on root route
+# Mount static directory for PWA assets
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+# Serve visual dashboard on root route (Manager View)
 @app.get("/", response_class=HTMLResponse)
 def read_dashboard():
     template_path = os.path.join(os.path.dirname(__file__), "templates", "index.html")
@@ -61,6 +66,38 @@ def read_dashboard():
     with open(template_path, "r", encoding="utf-8") as f:
         html_content = f.read()
     return HTMLResponse(content=html_content)
+
+# Serve simplified Mobile-First Patient PWA
+@app.get("/patient", response_class=HTMLResponse)
+@app.get("/app", response_class=HTMLResponse)
+def read_patient_portal():
+    template_path = os.path.join(os.path.dirname(__file__), "templates", "patient.html")
+    if not os.path.exists(template_path):
+        raise HTTPException(status_code=404, detail="Patient template not found.")
+    
+    with open(template_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+    return HTMLResponse(content=html_content)
+
+# Serve PWA manifest
+@app.get("/manifest.json")
+def get_pwa_manifest():
+    manifest_path = os.path.join(os.path.dirname(__file__), "static", "manifest.json")
+    if not os.path.exists(manifest_path):
+        raise HTTPException(status_code=404, detail="Manifest not found.")
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        from starlette.responses import Response
+        return Response(content=f.read(), media_type="application/manifest+json")
+
+# Serve Service Worker
+@app.get("/sw.js")
+def get_pwa_service_worker():
+    sw_path = os.path.join(os.path.dirname(__file__), "static", "sw.js")
+    if not os.path.exists(sw_path):
+        raise HTTPException(status_code=404, detail="Service worker not found.")
+    with open(sw_path, "r", encoding="utf-8") as f:
+        from starlette.responses import Response
+        return Response(content=f.read(), media_type="application/javascript")
 
 # API Endpoints
 @app.get("/api/glucose/latest")
@@ -124,7 +161,7 @@ def api_predictions(
     target: float = Query(default=120.0, description="Target glucose in mg/dL"),
     isf: Optional[float] = Query(default=None, description="Insulin Sensitivity Factor (ISF) in mg/dL/U")
 ):
-    """Calculates forecasts for the next 15, 30, and 60 minutes and estimates correction bolus requirements."""
+    """Calculates forecasts out to 3 hours (180 mins) and estimates conservative correction bolus requirements."""
     latest = get_latest_reading()
     if not latest:
         return JSONResponse(status_code=404, content={"message": "No glucose readings found to forecast."})
@@ -144,6 +181,9 @@ def api_predictions(
     iob_estimated = calculate_iob(estimated_doses)
     total_iob = iob_confirmed + iob_estimated
     
+    # Fetch recent food logs (last 2 hours) for post-action suppression
+    recent_carbs = db.get_food_history(2, include_imputed=False)
+
     # Estimate correction bolus or required carbs
     from prediction import suggest_carbs, calculate_safe_carb_allowance, calculate_proactive_alert, get_lantus_schedule_status
     
@@ -155,6 +195,8 @@ def api_predictions(
         elif p['minutes'] == 60:
             forecasted_60m = p['value']
 
+    tz_str = os.getenv("LIBRE_TIMEZONE", "America/New_York")
+
     # Resolve what ISF/CSF was actually used to display on UI
     used_isf = isf
     used_csf = 4.0
@@ -162,37 +204,59 @@ def api_predictions(
         try:
             from ml_heuristics import load_heuristics_params, get_time_of_day_bucket
             params = load_heuristics_params()
-            bucket = get_time_of_day_bucket(latest['timestamp'])
+            bucket = get_time_of_day_bucket(latest['timestamp'], timezone_str=tz_str)
             used_isf = params.get("isf", {}).get(bucket, 50.0)
             used_csf = params.get("csf", {}).get(bucket, 4.0)
         except Exception:
             used_isf = 50.0
             used_csf = 4.0
 
-    suggested_insulin = suggest_correction(latest['value'], total_iob, target_glucose=target, isf=used_isf, current_time=latest['timestamp'], forecasted_glucose=forecasted_60m)
-    suggested_carbohydrates = suggest_carbs(latest['value'], forecasted_30m, total_iob, target_glucose=100.0, current_time=latest['timestamp'])
+    suggested_insulin = suggest_correction(
+        latest['value'],
+        total_iob,
+        target_glucose=target,
+        isf=used_isf,
+        current_time=latest['timestamp'],
+        forecasted_glucose=forecasted_60m,
+        timezone_str=tz_str,
+        check_lantus_window=True,
+        recent_doses=confirmed_doses
+    )
+    suggested_carbohydrates = suggest_carbs(
+        latest['value'],
+        forecasted_30m,
+        total_iob,
+        target_glucose=100.0,
+        current_time=latest['timestamp']
+    )
 
-    # Safe carb allowance (either rescue carbs or safe snack allowance)
+    # Safe carb allowance (either rescue carbs or safe snack allowance or awaiting absorption)
     safe_carbs = calculate_safe_carb_allowance(
         current_glucose=latest['value'],
         forecasted_60m=forecasted_60m,
         iob=total_iob,
         isf=used_isf,
         csf=used_csf,
-        upper_limit=160.0
+        upper_limit=160.0,
+        recent_carbs=recent_carbs,
+        current_time=latest['timestamp']
     )
 
-    # Proactive alert focusing on >1 hour out (60m, 90m, 120m)
+    # Proactive alert focusing on forward trajectory (>1 hour out)
     proactive_alert = calculate_proactive_alert(
         current_glucose=latest['value'],
         predictions=predictions,
         iob=total_iob,
         isf=used_isf,
-        csf=used_csf
+        csf=used_csf,
+        current_time=latest['timestamp'],
+        recent_doses=confirmed_doses,
+        recent_carbs=recent_carbs,
+        timezone_str=tz_str
     )
 
     # Lantus twice-daily schedule status (13U @ 6 AM / 13U @ 6 PM)
-    lantus_status = get_lantus_schedule_status(timezone_str=os.getenv("LIBRE_TIMEZONE", "America/New_York"))
+    lantus_status = get_lantus_schedule_status(timezone_str=tz_str)
 
     # Mutually exclusive actions: don't suggest insulin if we need carbs!
     if suggested_carbohydrates > 0.0:
@@ -221,6 +285,11 @@ def api_predictions(
             "csf": used_csf
         }
     }
+
+@app.get("/api/patient/summary")
+def api_patient_summary():
+    """Aggregated, ultra-fast payload specifically tailored for the mobile patient PWA."""
+    return api_predictions()
 
 @app.post("/api/heuristics/train")
 def api_train_heuristics(days: int = Query(default=30, ge=7, le=90)):

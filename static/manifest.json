@@ -1,0 +1,26 @@
+{
+  "name": "GlucoTrack Patient",
+  "short_name": "GlucoTrack",
+  "description": "Simplified Blood Sugar & Dosing Companion for Patients",
+  "start_url": "/patient",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0c16",
+  "theme_color": "#0b0c16",
+  "categories": ["health", "medical", "lifestyle"],
+  "icons": [
+    {
+      "src": "/static/icons/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/static/icons/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

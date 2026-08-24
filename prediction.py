@@ -15,9 +15,37 @@ def parse_dt(val):
         return val
     return None
 
-def predict_glucose(readings, minutes_ahead=[15, 30, 60, 90, 120], dampening_half_life=25):
+def is_in_lantus_window(dt=None, timezone_str="America/New_York", window_mins=60):
     """
-    Predicts glucose values for future time offsets using a dampened linear trend or adaptive ML model.
+    Returns True if the specified or current datetime is within `window_mins` of scheduled
+    Lantus doses (6:00 AM or 6:00 PM local time).
+    """
+    try:
+        tz = pytz.timezone(timezone_str)
+    except Exception:
+        tz = pytz.utc
+
+    if dt is None:
+        dt = datetime.now(timezone.utc)
+    elif isinstance(dt, str):
+        dt = parse_dt(dt) or datetime.now(timezone.utc)
+    elif isinstance(dt, datetime) and dt.tzinfo is None:
+        dt = pytz.utc.localize(dt)
+
+    local_dt = dt.astimezone(tz)
+    # Target hours in local time: 6 (6 AM) and 18 (6 PM)
+    morn_target = local_dt.replace(hour=6, minute=0, second=0, microsecond=0)
+    eve_target = local_dt.replace(hour=18, minute=0, second=0, microsecond=0)
+
+    diff_morn = abs((local_dt - morn_target).total_seconds()) / 60.0
+    diff_eve = abs((local_dt - eve_target).total_seconds()) / 60.0
+
+    return (diff_morn <= window_mins) or (diff_eve <= window_mins)
+
+def predict_glucose(readings, minutes_ahead=[15, 30, 60, 90, 120, 180], dampening_half_life=30):
+    """
+    Predicts glucose values for future time offsets (up to 3 hours / 180 mins)
+    using a dampened linear trend or adaptive ML model.
     `readings` is a list of dictionaries with 'timestamp' and 'value'.
     `dampening_half_life` is the time (in minutes) for the trend slope to decay by half.
     """
@@ -58,8 +86,8 @@ def predict_glucose(readings, minutes_ahead=[15, 30, 60, 90, 120], dampening_hal
     except Exception as e:
         print(f"Adaptive prediction failed, falling back to linear: {e}")
     
-    # Use the last 8 readings (approx. 2 hours of passive/live readings) for the local trend
-    trend_readings = sorted_readings[-8:]
+    # Use the last 10 readings for the local trend
+    trend_readings = sorted_readings[-10:]
     if len(trend_readings) < 2:
         return []
 
@@ -75,7 +103,7 @@ def predict_glucose(readings, minutes_ahead=[15, 30, 60, 90, 120], dampening_hal
         times_min.append(delta)
         vals.append(r['value'])
 
-    # Perform a simple linear regression to find the current velocity (slope in mg/dL/min)
+    # Perform linear regression to find current velocity (slope in mg/dL/min)
     n = len(times_min)
     sum_x = sum(times_min)
     sum_y = sum(vals)
@@ -84,7 +112,6 @@ def predict_glucose(readings, minutes_ahead=[15, 30, 60, 90, 120], dampening_hal
     
     denom = (n * sum_xx - sum_x * sum_x)
     if abs(denom) < 1e-5:
-        # Fallback to simple difference if math fails
         slope = (vals[-1] - vals[0]) / (times_min[-1] - times_min[0]) if (times_min[-1] - times_min[0]) != 0 else 0.0
     else:
         slope = (n * sum_xy - sum_x * sum_y) / denom
@@ -140,13 +167,11 @@ def calculate_iob(doses, current_time=None, action_duration_mins=240):
         elapsed_mins = (current_time - dose_time).total_seconds() / 60.0
 
         if elapsed_mins < 0:
-            # Dose is logged in the future (safety fallback: count full dose)
             elapsed_mins = 0
 
         if elapsed_mins >= action_duration_mins:
             continue
 
-        # Extract all rapid-acting components safely
         def _safe_float(val):
             if val is None:
                 return 0.0
@@ -172,13 +197,26 @@ def calculate_iob(doses, current_time=None, action_duration_mins=240):
 
     return round(total_iob, 2)
 
-def suggest_correction(current_glucose, iob, target_glucose=120, isf=None, current_time=None, forecasted_glucose=None):
+def suggest_correction(
+    current_glucose,
+    iob,
+    target_glucose=120,
+    isf=None,
+    current_time=None,
+    forecasted_glucose=None,
+    timezone_str="America/New_York",
+    check_lantus_window=True,
+    recent_doses=None
+):
     """
-    Calculates trajectory-aware preemptive correction insulin units:
-    - If forecasted_glucose is provided:
-      If blood sugar is trending downward, uses the forecasted glucose to prevent dangerous over-correction / insulin stacking.
-      If blood sugar is trending upward, uses the forecasted rise to calculate the necessary preemptive dose.
-    - Correction = max(0.0, (Effective Glucose - Target Glucose) / ISF - IOB)
+    Calculates trajectory-aware, conservative preemptive correction insulin units.
+    
+    SAFETY LOCKOUTS:
+    1. Lantus Administration Window Lockout: If current time is within 60 minutes of scheduled
+       Lantus doses (5:00–7:00 AM or 5:00–7:00 PM), returns 0.0 U to prevent basal stacking.
+    2. Post-Action Suppression Lockout: If rapid-acting bolus was logged in the last 30 minutes,
+       returns 0.0 U to await insulin onset and prevent dose stacking.
+    3. Trajectory-Aware: If forecasted glucose is dropping, uses the lower forward forecast.
     """
     try:
         current_glucose = float(current_glucose)
@@ -190,13 +228,28 @@ def suggest_correction(current_glucose, iob, target_glucose=120, isf=None, curre
     if math.isnan(current_glucose) or math.isinf(current_glucose) or math.isnan(target_glucose) or math.isinf(target_glucose):
         return 0.0
 
+    # 1. Safety Lockout: Lantus window (5-7 AM / 5-7 PM)
+    if check_lantus_window and is_in_lantus_window(current_time, timezone_str=timezone_str, window_mins=60):
+        return 0.0
+
+    # 2. Safety Lockout: Recent bolus in last 30 minutes
+    if recent_doses:
+        t_now = parse_dt(current_time) or datetime.now(timezone.utc)
+        for d in recent_doses:
+            dt_dose = parse_dt(d.get('timestamp'))
+            if dt_dose:
+                elapsed = (t_now - dt_dose).total_seconds() / 60.0
+                if 0 <= elapsed < 30:
+                    r_val = float(d.get('rapid_acting') or d.get('correction') or d.get('meal') or 0.0)
+                    if r_val > 0.0 and not d.get('is_imputed'):
+                        return 0.0
+
     # Determine effective glucose based on forward trajectory if provided
     effective_glucose = current_glucose
     if forecasted_glucose is not None:
         try:
             f_val = float(forecasted_glucose)
             if not (math.isnan(f_val) or math.isinf(f_val)):
-                # If trending down towards or below target, respect the downward forecast
                 if f_val < current_glucose:
                     effective_glucose = f_val
                 else:
@@ -214,7 +267,7 @@ def suggest_correction(current_glucose, iob, target_glucose=120, isf=None, curre
             t = current_time or datetime.now(timezone.utc)
             if isinstance(t, str):
                 t = parse_dt(t) or datetime.now(timezone.utc)
-            bucket = get_time_of_day_bucket(t)
+            bucket = get_time_of_day_bucket(t, timezone_str=timezone_str)
             isf = params.get("isf", {}).get(bucket, 50.0)
         except Exception:
             isf = 50.0
@@ -228,7 +281,8 @@ def suggest_correction(current_glucose, iob, target_glucose=120, isf=None, curre
 
     needed_bolus = (effective_glucose - target_glucose) / isf
     suggested = needed_bolus - iob
-    return round(max(0.0, suggested), 2)
+    # Conservative rounding down to nearest 0.5 or 0.1 U
+    return round(max(0.0, suggested), 1)
 
 def suggest_carbs(current_glucose, forecasted_glucose, iob, target_glucose=100, current_time=None):
     """
@@ -276,9 +330,19 @@ def suggest_carbs(current_glucose, forecasted_glucose, iob, target_glucose=100, 
     return round(suggested_carbs, 1)
 
 
-def calculate_safe_carb_allowance(current_glucose, forecasted_60m, iob, isf=50.0, csf=4.0, upper_limit=160.0):
+def calculate_safe_carb_allowance(
+    current_glucose,
+    forecasted_60m,
+    iob,
+    isf=50.0,
+    csf=4.0,
+    upper_limit=160.0,
+    recent_carbs=None,
+    current_time=None
+):
     """
     Calculates the safe carb intake at any given moment:
+    - If carbs were consumed in the last 30 minutes, acknowledges active digestion.
     - If trending low/in deficit: returns the exact Rescue Carbs needed.
     - If in safe target range: returns the Safe Snack Allowance without exceeding upper_limit.
     - If elevated: returns 0g safe carbs (advise low/zero carb).
@@ -291,6 +355,27 @@ def calculate_safe_carb_allowance(current_glucose, forecasted_60m, iob, isf=50.0
         csf_val = float(csf) if csf else 4.0
     except (ValueError, TypeError):
         return {"type": "unknown", "grams": 0, "label": "No Data", "explanation": "Awaiting glucose readings."}
+
+    # 0. Post-Action Suppression Check: Carbs logged in last 30 minutes
+    if recent_carbs:
+        t_now = parse_dt(current_time) or datetime.now(timezone.utc)
+        recent_total = 0.0
+        for f in recent_carbs:
+            dt_f = parse_dt(f.get('timestamp'))
+            if dt_f:
+                elapsed = (t_now - dt_f).total_seconds() / 60.0
+                if 0 <= elapsed < 30 and not f.get('is_imputed'):
+                    c_g = float(f.get('carbs_g') or 0.0)
+                    recent_total += c_g
+
+        if recent_total >= 8.0:
+            return {
+                "type": "awaiting_absorption",
+                "grams": int(recent_total),
+                "label": f"Active Carbs (~{int(recent_total)}g)",
+                "status": "optimal",
+                "explanation": f"Consumed ~{int(recent_total)}g carbs in last 30m. Awaiting glycemic absorption — no additional intake needed."
+            }
 
     # 1. Check if low or projected to go low (<95 mg/dL)
     if cur < 90.0 or f60 < 95.0:
@@ -340,26 +425,28 @@ def calculate_safe_carb_allowance(current_glucose, forecasted_60m, iob, isf=50.0
         }
 
 
-def calculate_proactive_alert(current_glucose, predictions, iob, isf=50.0, csf=4.0):
+def calculate_proactive_alert(current_glucose, predictions, iob, isf=50.0, csf=4.0, current_time=None, recent_doses=None, recent_carbs=None, timezone_str="America/New_York"):
     """
-    Analyzes forecasts specifically >1 hour out (60, 90, 120 min) to generate
-    early-warning alerts and preventative instructions.
+    Analyzes forecasts out to 3 hours (60, 90, 120, 180 min) to generate
+    early-warning alerts and preventative instructions with full safety lockouts.
     """
     if not predictions:
         return {
             "level": "neutral",
             "title": "Monitoring Trends",
-            "message": "Collecting trend history to forecast >1 hour ahead.",
+            "message": "Collecting trend history to forecast ahead.",
             "forecast_60": None,
             "forecast_90": None,
-            "forecast_120": None
+            "forecast_120": None,
+            "forecast_180": None
         }
 
     f60 = next((p['value'] for p in predictions if p['minutes'] == 60), None)
     f90 = next((p['value'] for p in predictions if p['minutes'] == 90), None)
     f120 = next((p['value'] for p in predictions if p['minutes'] == 120), None)
+    f180 = next((p['value'] for p in predictions if p['minutes'] == 180), None)
 
-    # Find minimum and maximum future values over 60-120 minutes
+    # Find minimum and maximum future values over 60-180 minutes
     future_vals = [p for p in predictions if p['minutes'] >= 60]
     if not future_vals:
         future_vals = predictions
@@ -367,9 +454,32 @@ def calculate_proactive_alert(current_glucose, predictions, iob, isf=50.0, csf=4
     min_future = min(future_vals, key=lambda x: x['value'])
     max_future = max(future_vals, key=lambda x: x['value'])
 
-    # Low alert for >1 hour out (<75 mg/dL)
+    # Low alert for future window (<75 mg/dL)
     if min_future['value'] < 75.0:
-        needed_carbs = suggest_carbs(current_glucose, min_future['value'], iob)
+        # Check if carbs were already taken in the last 30 minutes
+        recent_carb_total = 0.0
+        if recent_carbs:
+            t_now = parse_dt(current_time) or datetime.now(timezone.utc)
+            for f in recent_carbs:
+                dt_f = parse_dt(f.get('timestamp'))
+                if dt_f and 0 <= (t_now - dt_f).total_seconds() / 60.0 < 30 and not f.get('is_imputed'):
+                    recent_carb_total += float(f.get('carbs_g') or 0.0)
+
+        if recent_carb_total >= 8.0:
+            return {
+                "level": "optimal",
+                "badge": "🟢 Rescue Carbs Active",
+                "title": f"Carbs Ingested (~{int(recent_carb_total)}g)",
+                "message": "Awaiting glycemic absorption to intercept projected downward curve.",
+                "forecast_60": f60,
+                "forecast_90": f90,
+                "forecast_120": f120,
+                "forecast_180": f180,
+                "target_action": "none",
+                "action_val": 0.0
+            }
+
+        needed_carbs = suggest_carbs(current_glucose, min_future['value'], iob, current_time=current_time)
         return {
             "level": "warning_low",
             "badge": "⚠️ Proactive Low Warning",
@@ -378,12 +488,23 @@ def calculate_proactive_alert(current_glucose, predictions, iob, isf=50.0, csf=4
             "forecast_60": f60,
             "forecast_90": f90,
             "forecast_120": f120,
+            "forecast_180": f180,
             "target_action": "eat_carbs",
             "action_val": needed_carbs
         }
 
-    # High alert for >1 hour out (only if preemptive correction is genuinely required)
-    preemptive_correction = suggest_correction(current_glucose, iob, target_glucose=120.0, isf=isf, forecasted_glucose=f60 or max_future['value'])
+    # High alert for future window
+    preemptive_correction = suggest_correction(
+        current_glucose,
+        iob,
+        target_glucose=120.0,
+        isf=isf,
+        current_time=current_time,
+        forecasted_glucose=f60 or max_future['value'],
+        timezone_str=timezone_str,
+        check_lantus_window=True,
+        recent_doses=recent_doses
+    )
     if preemptive_correction > 0.0 and (max_future['value'] > 180.0 or current_glucose > 180.0):
         return {
             "level": "warning_high",
@@ -393,19 +514,36 @@ def calculate_proactive_alert(current_glucose, predictions, iob, isf=50.0, csf=4
             "forecast_60": f60,
             "forecast_90": f90,
             "forecast_120": f120,
+            "forecast_180": f180,
             "target_action": "take_insulin",
             "action_val": preemptive_correction
+        }
+
+    # Check if Lantus window is active
+    if is_in_lantus_window(current_time, timezone_str=timezone_str, window_mins=60):
+        return {
+            "level": "optimal",
+            "badge": "🕒 Lantus Window Active",
+            "title": "Lantus Administration Window (6:00)",
+            "message": "Fast-acting corrections locked to 0U to ensure safe basal administration without stacking.",
+            "forecast_60": f60,
+            "forecast_90": f90,
+            "forecast_120": f120,
+            "forecast_180": f180,
+            "target_action": "none",
+            "action_val": 0.0
         }
 
     # Stable in-range or naturally normalizing trajectory
     return {
         "level": "optimal",
-        "badge": "🟢 Stable Trajectory (>1 Hour)",
-        "title": f"In Target (60m: {f60:.0f} | 90m: {f90 or f60:.0f} mg/dL)" if f60 else "In Target",
+        "badge": "🟢 Stable Trajectory (3 Hours)",
+        "title": f"In Target (60m: {f60:.0f} | 180m: {f180 or f120 or f60:.0f} mg/dL)" if f60 else "In Target",
         "message": "Projected blood sugar remains stable/trending to target range (70–160 mg/dL). No correction bolus needed.",
         "forecast_60": f60,
         "forecast_90": f90,
         "forecast_120": f120,
+        "forecast_180": f180,
         "target_action": "none",
         "action_val": 0.0
     }

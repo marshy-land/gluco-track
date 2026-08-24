@@ -584,6 +584,9 @@ def predict_adaptive_glucose(readings, iob_val, timezone_str="America/New_York")
 
     pred_120 = val_t_float + (pred_30 - val_t_float) * 2.5 # 120m dampened trend
     pred_120 = max(40.0, min(400.0, pred_120))
+
+    pred_180 = val_t_float + (pred_30 - val_t_float) * 2.8 # 180m (3-hour) dampened trend
+    pred_180 = max(40.0, min(400.0, pred_180))
     
     # Calculate trend rate (mg/dL/min)
     trend_rate = (pred_30 - val_t_float) / 30.0
@@ -593,7 +596,8 @@ def predict_adaptive_glucose(readings, iob_val, timezone_str="America/New_York")
         {"minutes": 30, "value": round(pred_30, 1), "trend_rate": round(trend_rate, 2)},
         {"minutes": 60, "value": round(pred_60, 1), "trend_rate": round(trend_rate, 2)},
         {"minutes": 90, "value": round(pred_90, 1), "trend_rate": round(trend_rate, 2)},
-        {"minutes": 120, "value": round(pred_120, 1), "trend_rate": round(trend_rate, 2)}
+        {"minutes": 120, "value": round(pred_120, 1), "trend_rate": round(trend_rate, 2)},
+        {"minutes": 180, "value": round(pred_180, 1), "trend_rate": round(trend_rate, 2)}
     ]
 
 FALLBACK_NUTRITIONAL_BUCKETS = {

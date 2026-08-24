@@ -348,12 +348,18 @@
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>GLUCO TRACK</h1>
-            <div class="status-indicator">
-                <span class="status-dot"></span>
-                <span>Live Sync Connected</span>
+        <header style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+                <h1 style="margin: 0;">GLUCO TRACK</h1>
+                <div class="status-indicator" style="margin: 0;">
+                    <span class="status-dot"></span>
+                    <span>Live Sync Connected</span>
+                </div>
             </div>
+            <a href="/patient" style="display: inline-flex; align-items: center; gap: 0.45rem; background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%); color: #020617; padding: 0.45rem 1rem; border-radius: 9999px; font-size: 0.85rem; font-weight: 800; text-decoration: none; box-shadow: 0 4px 15px rgba(56, 189, 248, 0.35); transition: transform 0.15s;" onmouseover="this.style.transform='scale(1.04)'" onmouseout="this.style.transform='scale(1)'">
+                <span>📱</span>
+                <span>Patient Mobile App</span>
+            </a>
         </header>
 
         <div class="top-row" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem;">

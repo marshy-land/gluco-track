@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#020617"/>
+    </linearGradient>
+    <linearGradient id="dropGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="waveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+  </defs>
+  <rect width="192" height="192" rx="42" fill="url(#bgGrad)"/>
+  <circle cx="96" cy="96" r="76" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="2"/>
+  <!-- Stylized Blood Sugar Drop with Wave -->
+  <path d="M96 38 C96 38, 56 94, 56 122 C56 144, 74 162, 96 162 C118 162, 136 144, 136 122 C136 94, 96 38, 96 38 Z" fill="url(#dropGrad)"/>
+  <!-- Pulse line inside drop -->
+  <path d="M72 122 L86 122 L91 106 L99 134 L105 116 L110 122 L120 122" fill="none" stroke="#ffffff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
