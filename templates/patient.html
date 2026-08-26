@@ -7,7 +7,6 @@
     
     <!-- PWA Manifest & Meta -->
     <link rel="manifest" href="/static/manifest.json">
-    <meta name="theme-color" content="#ffffff">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="GlucoTrack">
@@ -24,18 +23,28 @@
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
 
     <style>
+        /* ==========================================================================
+           DEVICE-ADAPTIVE COLOR THEMES (Light & Dark with High Contrast Accessibility)
+           ========================================================================== */
+        
         :root {
-            /* Clean, High-Contrast Light Theme */
+            /* Default: High-Contrast Light Theme */
             --bg-page: #f1f5f9;
             --card-bg: #ffffff;
             --card-border: #cbd5e1;
             --card-border-strong: #94a3b8;
+            --card-shadow: 0 4px 16px rgba(15, 23, 42, 0.07);
             
-            --text-primary: #020617;   /* Almost pure black for max contrast (20:1 ratio) */
-            --text-secondary: #1e293b; /* Dark slate (12:1 ratio) */
-            --text-muted: #475569;     /* Medium slate (7:1 ratio, WCAG AAA compliant) */
+            --text-primary: #020617;   /* Ultra-high contrast near-black (20:1) */
+            --text-secondary: #1e293b; /* Slate 800 (12:1) */
+            --text-muted: #475569;     /* Slate 600 (7:1 WCAG AAA) */
             
-            /* High-Legibility Accessible Color Palette */
+            --input-bg: #ffffff;
+            --input-border: #94a3b8;
+            --modal-sheet-bg: #ffffff;
+            --modal-sheet-border: #cbd5e1;
+            
+            /* Clinical Accessible Status Badges */
             --target-green-text: #065f46;
             --target-green-bg: #ecfdf5;
             --target-green-border: #059669;
@@ -55,20 +64,66 @@
             --lantus-purple-text: #581c87;
             --lantus-purple-bg: #faf5ff;
             --lantus-purple-border: #7e22ce;
+            
+            --chart-grid: #e2e8f0;
+            --chart-tick: #0f172a;
         }
 
-        /* High Text Scaling Mode */
+        @media (prefers-color-scheme: dark) {
+            :root {
+                /* High-Contrast OLED Dark Theme */
+                --bg-page: #090a14;
+                --card-bg: rgba(22, 24, 45, 0.88);
+                --card-border: rgba(255, 255, 255, 0.14);
+                --card-border-strong: rgba(255, 255, 255, 0.25);
+                --card-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+                
+                --text-primary: #f8fafc;   /* Ultra-high contrast pure white */
+                --text-secondary: #cbd5e1; /* Slate 300 */
+                --text-muted: #94a3b8;     /* Slate 400 */
+                
+                --input-bg: #13152c;
+                --input-border: rgba(255, 255, 255, 0.22);
+                --modal-sheet-bg: #111327;
+                --modal-sheet-border: rgba(255, 255, 255, 0.16);
+                
+                --target-green-text: #34d399;
+                --target-green-bg: rgba(16, 185, 129, 0.14);
+                --target-green-border: #10b981;
+                
+                --low-red-text: #f87171;
+                --low-red-bg: rgba(239, 68, 68, 0.16);
+                --low-red-border: #ef4444;
+                
+                --high-amber-text: #fbbf24;
+                --high-amber-bg: rgba(245, 158, 11, 0.16);
+                --high-amber-border: #f59e0b;
+                
+                --bolus-blue-text: #38bdf8;
+                --bolus-blue-bg: rgba(56, 189, 248, 0.14);
+                --bolus-blue-border: #38bdf8;
+                
+                --lantus-purple-text: #c084fc;
+                --lantus-purple-bg: rgba(168, 85, 247, 0.14);
+                --lantus-purple-border: #a855f7;
+                
+                --chart-grid: rgba(255, 255, 255, 0.06);
+                --chart-tick: #cbd5e1;
+            }
+        }
+
+        /* Large Text Accessibility Scaling */
         body.large-text {
-            font-size: 1.15rem;
+            font-size: 1.18rem;
         }
         body.large-text .glucose-num {
-            font-size: 6rem !important;
+            font-size: 6.2rem !important;
         }
         body.large-text .action-card-val {
-            font-size: 2.1rem !important;
+            font-size: 2.15rem !important;
         }
         body.large-text .action-card-desc {
-            font-size: 1.15rem !important;
+            font-size: 1.18rem !important;
         }
 
         * {
@@ -83,12 +138,13 @@
             background-color: var(--bg-page);
             color: var(--text-primary);
             min-height: 100vh;
-            padding-bottom: 6rem; /* Extra clearance for bottom action bar */
+            padding-bottom: 6.5rem; /* Room for bottom action bar */
             display: flex;
             flex-direction: column;
             align-items: center;
             line-height: 1.45;
             -webkit-font-smoothing: antialiased;
+            transition: background-color 0.25s ease, color 0.25s ease;
         }
 
         .container {
@@ -116,16 +172,15 @@
 
         .brand-title {
             font-family: 'Outfit', sans-serif;
-            font-size: 1.45rem;
+            font-size: 1.5rem;
             font-weight: 900;
             letter-spacing: -0.03em;
-            color: #0f172a;
         }
 
         .status-pill {
             display: inline-flex;
             align-items: center;
-            gap: 0.4rem;
+            gap: 0.45rem;
             background: var(--target-green-bg);
             border: 2px solid var(--target-green-border);
             color: var(--target-green-text);
@@ -140,7 +195,6 @@
             height: 8px;
             border-radius: 50%;
             background-color: var(--target-green-border);
-            box-shadow: 0 0 6px rgba(5, 150, 105, 0.6);
             animation: pulse 2s infinite;
         }
 
@@ -157,35 +211,33 @@
         }
 
         .icon-btn {
-            background: #ffffff;
+            background: var(--card-bg);
             border: 2px solid var(--card-border);
             color: var(--text-primary);
-            width: 42px;
-            height: 42px;
-            border-radius: 12px;
+            width: 44px;
+            height: 44px;
+            border-radius: 14px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.15rem;
+            font-size: 1.2rem;
             font-weight: 700;
             cursor: pointer;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.06);
             transition: all 0.15s;
         }
 
         .icon-btn:active {
-            transform: scale(0.94);
-            background: #f8fafc;
-            border-color: #020617;
+            transform: scale(0.92);
         }
 
         /* Accessible Cards */
         .card {
             background: var(--card-bg);
-            border: 2px solid var(--card-border);
+            border: 2.5px solid var(--card-border);
             border-radius: 24px;
             padding: 1.4rem;
-            box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+            box-shadow: var(--card-shadow);
             display: flex;
             flex-direction: column;
             gap: 0.75rem;
@@ -234,14 +286,14 @@
 
         .glucose-num {
             font-family: 'Outfit', sans-serif;
-            font-size: 5.4rem;
+            font-size: 5.5rem;
             font-weight: 900;
             line-height: 1;
             letter-spacing: -0.04em;
         }
 
         .glucose-unit {
-            font-size: 1.25rem;
+            font-size: 1.3rem;
             font-weight: 800;
             color: var(--text-muted);
         }
@@ -254,8 +306,8 @@
             font-weight: 800;
             padding: 0.35rem 1.15rem;
             border-radius: 9999px;
-            background: #ffffff;
-            border: 2px solid rgba(0, 0, 0, 0.12);
+            background: var(--card-bg);
+            border: 2px solid var(--card-border-strong);
             box-shadow: 0 2px 8px rgba(0,0,0,0.06);
             margin-top: 0.35rem;
         }
@@ -276,7 +328,7 @@
             font-weight: 900;
             text-transform: uppercase;
             letter-spacing: 0.08em;
-            color: #0f172a;
+            color: var(--text-primary);
             margin-top: 0.35rem;
             margin-bottom: -0.25rem;
             padding-left: 0.25rem;
@@ -295,8 +347,8 @@
             flex-direction: column;
             gap: 0.65rem;
             border: 2.5px solid var(--card-border);
-            background: #ffffff;
-            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
+            background: var(--card-bg);
+            box-shadow: var(--card-shadow);
         }
 
         .action-card-header {
@@ -316,14 +368,14 @@
 
         .action-card-val {
             font-family: 'Outfit', sans-serif;
-            font-size: 1.85rem;
+            font-size: 1.9rem;
             font-weight: 900;
             letter-spacing: -0.02em;
             line-height: 1.2;
         }
 
         .action-card-desc {
-            font-size: 1rem;
+            font-size: 1.02rem;
             font-weight: 600;
             color: var(--text-secondary);
             line-height: 1.45;
@@ -331,28 +383,28 @@
 
         .action-card-btn {
             align-self: flex-start;
-            background: #0f172a;
-            border: 2px solid #0f172a;
-            color: #ffffff;
-            padding: 0.65rem 1.25rem;
+            background: var(--text-primary);
+            border: 2px solid var(--text-primary);
+            color: var(--bg-page);
+            padding: 0.75rem 1.35rem;
             border-radius: 14px;
-            font-size: 0.95rem;
+            font-size: 1rem;
             font-weight: 800;
             cursor: pointer;
             display: inline-flex;
             align-items: center;
             gap: 0.45rem;
             margin-top: 0.35rem;
-            box-shadow: 0 3px 10px rgba(15, 23, 42, 0.15);
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
             transition: all 0.15s;
         }
 
         .action-card-btn:active {
             transform: scale(0.96);
-            background: #334155;
+            opacity: 0.9;
         }
 
-        /* Specific Decision Card Variants (High Contrast) */
+        /* Specific Decision Card Variants (Adaptive) */
         .card-carbs {
             background: var(--target-green-bg);
             border-color: var(--target-green-border);
@@ -385,7 +437,7 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            background: #ffffff;
+            background: var(--card-bg);
             border: 2px solid var(--lantus-purple-border);
             border-radius: 16px;
             padding: 0.75rem 1rem;
@@ -412,17 +464,17 @@
             color: var(--target-green-text);
         }
         .check-badge.pending {
-            background: #f1f5f9;
+            background: var(--bg-page);
             border: 2px solid var(--card-border-strong);
             color: var(--text-secondary);
         }
 
         .lantus-log-btn {
             width: 100%;
-            background: #7e22ce;
-            border: 2px solid #581c87;
+            background: var(--lantus-purple-border);
+            border: 2px solid var(--lantus-purple-text);
             color: #ffffff;
-            padding: 0.95rem 1rem;
+            padding: 1rem 1rem;
             border-radius: 16px;
             font-size: 1.05rem;
             font-weight: 800;
@@ -437,7 +489,7 @@
         }
         .lantus-log-btn:active {
             transform: scale(0.97);
-            background: #6b21a8;
+            opacity: 0.9;
         }
 
         /* 3-Hour Outlook Section */
@@ -455,7 +507,7 @@
 
         .outlook-pill {
             flex: 0 0 84px;
-            background: #ffffff;
+            background: var(--card-bg);
             border: 2.5px solid var(--card-border);
             border-radius: 16px;
             padding: 0.75rem 0.5rem;
@@ -485,7 +537,7 @@
             height: 180px;
             width: 100%;
             margin-top: 0.75rem;
-            background: #ffffff;
+            background: var(--card-bg);
             border-radius: 16px;
             padding: 0.5rem;
             border: 1.5px solid var(--card-border);
@@ -499,8 +551,8 @@
             align-items: flex-start;
             gap: 0.85rem;
             border: 2.5px solid var(--card-border);
-            background: #ffffff;
-            font-size: 0.95rem;
+            background: var(--card-bg);
+            font-size: 0.98rem;
             font-weight: 700;
             box-shadow: 0 3px 10px rgba(0,0,0,0.06);
         }
@@ -515,13 +567,13 @@
             color: var(--high-amber-text);
         }
 
-        /* Bottom Fixed Bar (Accessible High Contrast) */
+        /* Bottom Fixed Bar (Accessible Touch Area) */
         .bottom-bar {
             position: fixed;
             bottom: 0;
             left: 0;
             right: 0;
-            background: #ffffff;
+            background: var(--card-bg);
             border-top: 2.5px solid var(--card-border);
             padding: 0.75rem 1rem env(safe-area-inset-bottom, 0.75rem) 1rem;
             display: flex;
@@ -541,31 +593,31 @@
             flex-direction: column;
             align-items: center;
             gap: 0.25rem;
-            font-size: 0.82rem;
+            font-size: 0.88rem;
             font-weight: 800;
             cursor: pointer;
-            padding: 0.35rem 0.65rem;
-            border-radius: 12px;
+            padding: 0.4rem 0.8rem;
+            border-radius: 14px;
             transition: all 0.15s;
         }
         .bar-btn span.emoji {
-            font-size: 1.4rem;
+            font-size: 1.5rem;
         }
         .bar-btn:active {
             transform: scale(0.92);
-            background: #f1f5f9;
+            background: var(--bg-page);
         }
 
-        /* Modals & Action Sheets (High Contrast) */
+        /* Modals & Action Sheets */
         .modal-overlay {
             position: fixed;
             top: 0;
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(15, 23, 42, 0.65);
-            backdrop-filter: blur(4px);
-            -webkit-backdrop-filter: blur(4px);
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
             display: none;
             align-items: flex-end;
             justify-content: center;
@@ -576,17 +628,19 @@
         }
 
         .modal-sheet {
-            background: #ffffff;
+            background: var(--modal-sheet-bg);
             border-top: 3px solid var(--card-border-strong);
             border-top-left-radius: 28px;
             border-top-right-radius: 28px;
             width: 100%;
             max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
             padding: 1.75rem 1.4rem 3rem 1.4rem;
             display: flex;
             flex-direction: column;
             gap: 1.15rem;
-            box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.25);
+            box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.35);
             animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
@@ -602,20 +656,102 @@
         }
         .sheet-title {
             font-family: 'Outfit', sans-serif;
-            font-size: 1.4rem;
+            font-size: 1.45rem;
             font-weight: 800;
-            color: #0f172a;
         }
         .close-btn {
-            background: #f1f5f9;
+            background: var(--bg-page);
             border: 2px solid var(--card-border);
             color: var(--text-primary);
-            width: 38px;
-            height: 38px;
+            width: 40px;
+            height: 40px;
             border-radius: 50%;
             cursor: pointer;
-            font-size: 1.1rem;
+            font-size: 1.2rem;
             font-weight: 800;
+        }
+
+        /* Multimodal Food Tabs & Input Layout */
+        .multimodal-tabs {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.5rem;
+            background: var(--bg-page);
+            padding: 0.35rem;
+            border-radius: 16px;
+            border: 2px solid var(--card-border);
+        }
+
+        .tab-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            padding: 0.65rem 0.25rem;
+            border-radius: 12px;
+            font-size: 0.88rem;
+            font-weight: 800;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.2rem;
+        }
+        .tab-btn.active {
+            background: var(--card-bg);
+            color: var(--text-primary);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+        }
+
+        .tab-content {
+            display: none;
+            flex-direction: column;
+            gap: 0.85rem;
+        }
+        .tab-content.active {
+            display: flex;
+        }
+
+        .multimodal-action-box {
+            border: 2px dashed var(--card-border-strong);
+            background: var(--bg-page);
+            border-radius: 18px;
+            padding: 1.25rem 1rem;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.6rem;
+            cursor: pointer;
+        }
+
+        .multimodal-action-box:active {
+            background: var(--card-bg);
+        }
+
+        .voice-mic-btn {
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            background: #ef4444;
+            color: white;
+            border: 3px solid #b91c1c;
+            font-size: 2rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+            transition: all 0.2s;
+        }
+        .voice-mic-btn.listening {
+            animation: pulse-mic 1s infinite alternate;
+            background: #10b981;
+            border-color: #059669;
+        }
+
+        @keyframes pulse-mic {
+            0% { transform: scale(0.95); box-shadow: 0 0 10px rgba(16, 185, 129, 0.5); }
+            100% { transform: scale(1.1); box-shadow: 0 0 25px rgba(16, 185, 129, 0.8); }
         }
 
         .quick-chips {
@@ -624,9 +760,9 @@
             flex-wrap: wrap;
         }
         .chip-btn {
-            background: #f8fafc;
+            background: var(--bg-page);
             border: 2px solid var(--card-border-strong);
-            color: #0f172a;
+            color: var(--text-primary);
             padding: 0.65rem 1rem;
             border-radius: 14px;
             font-size: 0.95rem;
@@ -650,11 +786,11 @@
             color: var(--text-secondary);
         }
         .input-group input, .input-group select {
-            background: #ffffff;
-            border: 2.5px solid var(--card-border-strong);
+            background: var(--input-bg);
+            border: 2.5px solid var(--input-border);
             border-radius: 14px;
             padding: 0.85rem 1.15rem;
-            color: #020617;
+            color: var(--text-primary);
             font-size: 1.15rem;
             font-weight: 700;
             font-family: inherit;
@@ -662,7 +798,45 @@
         .input-group input:focus, .input-group select:focus {
             outline: none;
             border-color: #0284c7;
-            box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.2);
+            box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.25);
+        }
+
+        /* Safety Hold-To-Confirm Button */
+        .safety-hold-btn {
+            width: 100%;
+            background: #7e22ce;
+            border: 3px solid #581c87;
+            color: #ffffff;
+            padding: 1.15rem;
+            border-radius: 18px;
+            font-size: 1.15rem;
+            font-weight: 900;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            box-shadow: 0 4px 15px rgba(126, 34, 206, 0.35);
+        }
+
+        .hold-progress-fill {
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 0%;
+            background: #059669;
+            transition: width 0.05s linear;
+            z-index: 1;
+        }
+
+        .hold-btn-text {
+            position: relative;
+            z-index: 2;
         }
 
         .submit-btn {
@@ -681,6 +855,16 @@
             background: #0284c7;
             border-color: #0369a1;
             box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);
+        }
+        .cancel-btn {
+            background: var(--bg-page);
+            border: 2px solid var(--card-border-strong);
+            color: var(--text-primary);
+            padding: 0.9rem;
+            border-radius: 16px;
+            font-size: 1.05rem;
+            font-weight: 800;
+            cursor: pointer;
         }
 
         /* PWA Install Banner */
@@ -715,7 +899,6 @@
                 <button class="icon-btn" onclick="toggleLargeText()" title="Text Size (Accessibility)">🔤</button>
                 <button class="icon-btn" onclick="toggleNotifications()" id="btn-notif" title="Enable Alerts">🔔</button>
                 <button class="icon-btn" onclick="fetchSummary()" title="Refresh">🔄</button>
-                <a href="/" class="icon-btn" title="Manager Dashboard" style="text-decoration: none;">⚙️</a>
             </div>
         </div>
 
@@ -723,7 +906,7 @@
         <div class="install-banner" id="pwa-install-banner">
             <div>
                 <div style="font-weight: 900; font-size: 1rem; color: #0369a1;">📱 Add to Home Screen</div>
-                <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Install on Pixel for full-screen reading without browser bars.</div>
+                <div style="font-size: 0.85rem; font-weight: 600; color: #1e293b;">Install on Pixel for full-screen view without browser bars.</div>
             </div>
             <button class="action-card-btn" onclick="handlePWAInstall()" style="margin: 0; background: #0284c7; border-color: #0369a1; color: #ffffff;">Install</button>
         </div>
@@ -798,7 +981,7 @@
                         <span style="font-size: 1.3rem;">🕒</span>
                         <span>Lantus Schedule (2x 13U)</span>
                     </div>
-                    <span style="font-size: 0.88rem; font-weight: 800; color: #581c87;" id="lantus-countdown">in 1h 30m</span>
+                    <span style="font-size: 0.88rem; font-weight: 800; color: var(--lantus-purple-text);" id="lantus-countdown">in 1h 30m</span>
                 </div>
                 
                 <div class="lantus-doses-row">
@@ -812,9 +995,9 @@
                     </div>
                 </div>
 
-                <button class="lantus-log-btn" id="btn-mark-lantus" onclick="handleLogLantus()">
-                    <span>✓</span>
-                    <span>Mark 13.0 U Lantus Taken</span>
+                <button class="lantus-log-btn" id="btn-open-lantus-modal" onclick="openLantusSafetyModal()">
+                    <span>🛡️</span>
+                    <span>Confirm 13.0 U Lantus Taken</span>
                 </button>
             </div>
 
@@ -837,57 +1020,132 @@
     <div class="bottom-bar">
         <button class="bar-btn" onclick="openFoodModal()">
             <span class="emoji">🍏</span>
-            <span>Carbs</span>
+            <span>Food / Carbs</span>
         </button>
         <button class="bar-btn" onclick="openBolusModal()">
             <span class="emoji">💉</span>
-            <span>Bolus</span>
+            <span>Rapid Bolus</span>
         </button>
-        <button class="bar-btn" onclick="handleLogLantus()">
+        <button class="bar-btn" onclick="openLantusSafetyModal()">
             <span class="emoji">🕒</span>
-            <span>Lantus</span>
+            <span>Lantus 13U</span>
         </button>
         <button class="bar-btn" onclick="fetchSummary()">
             <span class="emoji">🔄</span>
             <span>Refresh</span>
         </button>
-        <a href="/" class="bar-btn" style="text-decoration: none;">
-            <span class="emoji">⚙️</span>
-            <span>Manager</span>
-        </a>
     </div>
 
-    <!-- Log Food Sheet -->
+    <!-- =========================================================================
+         MULTIMODAL FOOD LOGGING SHEET (Camera, Barcode, Voice, Text NLP, Manual)
+         ========================================================================= -->
     <div class="modal-overlay" id="food-modal">
         <div class="modal-sheet">
             <div class="sheet-header">
-                <div class="sheet-title">🍏 Log Carbohydrates</div>
+                <div class="sheet-title">🍏 Log Food & Carbs</div>
                 <button class="close-btn" onclick="closeFoodModal()">✕</button>
             </div>
-            
-            <div class="quick-chips">
-                <button class="chip-btn" onclick="setCarbInput(5)">5g (Snack)</button>
-                <button class="chip-btn" onclick="setCarbInput(15)">15g (Rescue)</button>
-                <button class="chip-btn" onclick="setCarbInput(30)">30g (Meal)</button>
-                <button class="chip-btn" onclick="setCarbInput(45)">45g</button>
-                <button class="chip-btn" onclick="setCarbInput(60)">60g</button>
+
+            <!-- Multimodal Tabs -->
+            <div class="multimodal-tabs">
+                <button class="tab-btn active" id="tab-btn-quick" onclick="switchFoodTab('quick')">
+                    <span>⚡</span>
+                    <span>Quick & Text</span>
+                </button>
+                <button class="tab-btn" id="tab-btn-photo" onclick="switchFoodTab('photo')">
+                    <span>📸</span>
+                    <span>Photo AI</span>
+                </button>
+                <button class="tab-btn" id="tab-btn-barcode" onclick="switchFoodTab('barcode')">
+                    <span>🏷️</span>
+                    <span>Barcode</span>
+                </button>
             </div>
 
-            <div class="input-group">
-                <label>Carbohydrates (Grams)</label>
-                <input type="number" id="input-carbs" placeholder="e.g. 15" step="1" min="1" max="250">
+            <!-- Tab 1: Quick Chips, Natural Language Text & Speech -->
+            <div class="tab-content active" id="tab-quick">
+                <div class="quick-chips">
+                    <button class="chip-btn" onclick="setCarbInput(5)">5g (Snack)</button>
+                    <button class="chip-btn" onclick="setCarbInput(15)">15g (Rescue)</button>
+                    <button class="chip-btn" onclick="setCarbInput(30)">30g (Meal)</button>
+                    <button class="chip-btn" onclick="setCarbInput(45)">45g</button>
+                    <button class="chip-btn" onclick="setCarbInput(60)">60g</button>
+                </div>
+
+                <div class="input-group">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <label>Describe Meal or Speak</label>
+                        <button type="button" class="chip-btn" id="btn-voice-input" onclick="startVoiceInput()" style="padding: 0.35rem 0.75rem; font-size: 0.85rem;">
+                            <span id="voice-icon">🎙️</span> Speak
+                        </button>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <input type="text" id="input-food-desc" placeholder="e.g. 2 slices of toast and an apple" style="flex: 1;">
+                        <button type="button" class="action-card-btn" onclick="interpretFoodText()" style="margin: 0; padding: 0.75rem 1rem;">Estimate</button>
+                    </div>
+                </div>
+
+                <div class="input-group">
+                    <label>Calculated Carbohydrates (Grams)</label>
+                    <input type="number" id="input-carbs" placeholder="e.g. 15" step="1" min="1" max="250">
+                </div>
+
+                <div id="food-nlp-note" style="display: none; font-size: 0.9rem; font-weight: 700; color: #0284c7; background: #eff6ff; padding: 0.65rem 0.85rem; border-radius: 12px;"></div>
             </div>
 
-            <div class="input-group">
-                <label>Description (Optional)</label>
-                <input type="text" id="input-food-desc" placeholder="e.g. Apple, Orange Juice">
+            <!-- Tab 2: Camera Plate Photo AI -->
+            <div class="tab-content" id="tab-photo">
+                <input type="file" id="food-photo-input" accept="image/*" capture="environment" style="display: none;" onchange="handlePhotoUpload(event)">
+                
+                <div class="multimodal-action-box" onclick="document.getElementById('food-photo-input').click()">
+                    <span style="font-size: 2.8rem;">📸</span>
+                    <div style="font-weight: 800; font-size: 1.1rem;">Take Picture of Food / Plate</div>
+                    <div style="font-size: 0.9rem; color: var(--text-muted);">Uses AI camera recognition to identify food and portion sizes</div>
+                </div>
+
+                <div id="photo-loading" style="display: none; text-align: center; font-weight: 800; color: #0284c7;">
+                    🔄 Analyzing Plate & Estimating Carbs...
+                </div>
+
+                <div id="photo-result-box" style="display: none; flex-direction: column; gap: 0.5rem; background: var(--bg-page); padding: 0.85rem; border-radius: 14px; border: 2px solid var(--card-border);">
+                    <div style="font-weight: 800; font-size: 1.05rem;" id="photo-result-title">Plate Summary</div>
+                    <div style="font-size: 0.95rem; font-weight: 600;" id="photo-result-desc">--</div>
+                    <div style="font-weight: 900; font-size: 1.25rem; color: var(--target-green-text);" id="photo-result-carbs">--g Carbs</div>
+                </div>
             </div>
 
-            <button class="submit-btn" onclick="submitFoodLog()">Save Food Entry</button>
+            <!-- Tab 3: Barcode Scanner -->
+            <div class="tab-content" id="tab-barcode">
+                <input type="file" id="barcode-photo-input" accept="image/*" capture="environment" style="display: none;" onchange="handleBarcodePhotoUpload(event)">
+
+                <div class="multimodal-action-box" onclick="document.getElementById('barcode-photo-input').click()">
+                    <span style="font-size: 2.8rem;">🏷️</span>
+                    <div style="font-weight: 800; font-size: 1.1rem;">Scan / Photograph Barcode</div>
+                    <div style="font-size: 0.9rem; color: var(--text-muted);">Looks up verified carbohydrates via Open Food Facts</div>
+                </div>
+
+                <div class="input-group" style="margin-top: 0.5rem;">
+                    <label>Or Enter Barcode Digits</label>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <input type="text" id="input-barcode-digits" placeholder="e.g. 012000000133" inputmode="numeric" style="flex: 1;">
+                        <button type="button" class="action-card-btn" onclick="lookupBarcodeDigits()" style="margin: 0; padding: 0.75rem 1rem;">Lookup</button>
+                    </div>
+                </div>
+
+                <div id="barcode-result-box" style="display: none; flex-direction: column; gap: 0.4rem; background: var(--bg-page); padding: 0.85rem; border-radius: 14px; border: 2px solid var(--card-border);">
+                    <div style="font-weight: 800; font-size: 1.05rem;" id="barcode-result-title">Product</div>
+                    <div style="font-size: 0.95rem; font-weight: 600;" id="barcode-result-desc">--</div>
+                    <div style="font-weight: 900; font-size: 1.25rem; color: var(--target-green-text);" id="barcode-result-carbs">--g Carbs</div>
+                </div>
+            </div>
+
+            <button class="submit-btn" onclick="submitFoodLog()">Save Food Log</button>
         </div>
     </div>
 
-    <!-- Log Bolus Sheet -->
+    <!-- =========================================================================
+         FAST-ACTING BOLUS MODAL (With Confirmation Safeguard)
+         ========================================================================= -->
     <div class="modal-overlay" id="bolus-modal">
         <div class="modal-sheet">
             <div class="sheet-header">
@@ -909,7 +1167,7 @@
             </div>
 
             <div class="input-group">
-                <label>Type</label>
+                <label>Dose Type</label>
                 <select id="input-bolus-type">
                     <option value="correction">Correction Bolus</option>
                     <option value="meal">Meal Bolus</option>
@@ -917,7 +1175,39 @@
                 </select>
             </div>
 
-            <button class="submit-btn blue" onclick="submitBolusLog()">Save Bolus Dose</button>
+            <button class="submit-btn blue" onclick="confirmAndSubmitBolus()">Confirm & Save Rapid Dose</button>
+        </div>
+    </div>
+
+    <!-- =========================================================================
+         LANTUS BASAL SAFETY CONFIRMATION MODAL (Anti-Accidental Dosing)
+         ========================================================================= -->
+    <div class="modal-overlay" id="lantus-safety-modal">
+        <div class="modal-sheet" style="text-align: center; gap: 1.35rem;">
+            <div class="sheet-header">
+                <div class="sheet-title" style="color: var(--lantus-purple-text);">🛡️ Confirm Lantus Dose</div>
+                <button class="close-btn" onclick="closeLantusSafetyModal()">✕</button>
+            </div>
+
+            <div style="background: var(--lantus-purple-bg); border: 2.5px solid var(--lantus-purple-border); border-radius: 20px; padding: 1.5rem 1rem;">
+                <div style="font-size: 1.1rem; font-weight: 800; color: var(--text-secondary);">Scheduled Basal Insulin</div>
+                <div style="font-family: 'Outfit', sans-serif; font-size: 3.2rem; font-weight: 900; color: var(--lantus-purple-text); margin: 0.35rem 0;">13.0 Units</div>
+                <div style="font-size: 1rem; font-weight: 700; color: var(--text-secondary);" id="lantus-modal-slot-label">Lantus Administration (2x Daily)</div>
+            </div>
+
+            <div style="font-size: 0.98rem; font-weight: 700; color: var(--text-secondary); line-height: 1.45;">
+                ⚠️ To prevent accidental double-dosing or basal stacking, please press and hold the button below for <strong>1.5 seconds</strong> to confirm injection.
+            </div>
+
+            <!-- Press and Hold to Confirm Button -->
+            <button class="safety-hold-btn" id="btn-hold-lantus"
+                    onmousedown="startHoldLantus(event)" onmouseup="cancelHoldLantus(event)" onmouseleave="cancelHoldLantus(event)"
+                    ontouchstart="startHoldLantus(event)" ontouchend="cancelHoldLantus(event)" ontouchcancel="cancelHoldLantus(event)">
+                <div class="hold-progress-fill" id="lantus-hold-fill"></div>
+                <span class="hold-btn-text" id="lantus-hold-text">⏱️ Press & Hold to Confirm 13.0 U</span>
+            </button>
+
+            <button class="cancel-btn" onclick="closeLantusSafetyModal()">Cancel / Do Not Record</button>
         </div>
     </div>
 
@@ -925,8 +1215,11 @@
     <script>
         let patientChart = null;
         let deferredPrompt = null;
+        let holdTimer = null;
+        let holdStartTime = null;
+        const HOLD_DURATION_MS = 1500;
 
-        // Accessibility Text Size Toggle
+        // Accessibility Text Scaling Toggle
         function toggleLargeText() {
             document.body.classList.toggle('large-text');
             const isLarge = document.body.classList.contains('large-text');
@@ -936,6 +1229,11 @@
         if (localStorage.getItem('glucotrack_large_text') === '1') {
             document.body.classList.add('large-text');
         }
+
+        // Real-Time System Theme Listener
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+            fetchSummary();
+        });
 
         // PWA Service Worker Registration
         if ('serviceWorker' in navigator) {
@@ -999,7 +1297,7 @@
 
                 heroVal.innerText = curVal;
                 
-                // Styling State (High Contrast Light Palette)
+                // Styling State
                 heroCard.className = 'card hero-glucose-card';
                 if (curVal < 70) {
                     heroCard.classList.add('state-low');
@@ -1061,17 +1359,17 @@
                     }
                 }
 
-                // 3. Conservative Fast-Acting Bolus
+                // 3. Conservative Fast-Acting Bolus (Normal Band Deadband Aware)
                 const cardBolus = document.getElementById('card-bolus');
                 const bolusVal = document.getElementById('bolus-val');
                 const bolusDesc = document.getElementById('bolus-desc');
                 const suggestedInsulin = data.suggested_correction || 0.0;
 
                 cardBolus.className = 'action-card card-bolus';
-                if (suggestedInsulin > 0.0) {
+                if (suggestedInsulin >= 0.5) {
                     bolusVal.innerText = `Take ~${suggestedInsulin.toFixed(1)} U`;
                     bolusVal.style.color = 'var(--bolus-blue-text)';
-                    bolusDesc.innerText = `Preemptive dose based on upward 1-hour trend (ISF: ${data.parameters ? data.parameters.isf : 50}).`;
+                    bolusDesc.innerText = `Conservative correction dose for elevated trajectory.`;
                 } else {
                     bolusVal.innerText = '0.0 Units';
                     bolusVal.style.color = 'var(--target-green-text)';
@@ -1079,9 +1377,9 @@
                     const pa = data.proactive_alert;
                     if (pa && pa.badge && pa.badge.includes('Lantus')) {
                         cardBolus.classList.add('state-lockout');
-                        bolusDesc.innerText = 'Lantus Window Active (6:00) — Fast-acting bolus locked to 0U to prevent stacking.';
+                        bolusDesc.innerText = 'Lantus Window Active (6:00) — Fast-acting bolus locked to 0U to prevent basal stacking.';
                     } else {
-                        bolusDesc.innerText = 'In Target / Projected Normal. No fast-acting dose needed.';
+                        bolusDesc.innerText = 'In Target / Normal Healthy Band. No fast-acting dose needed.';
                     }
                 }
 
@@ -1137,7 +1435,7 @@
             if (!container) return;
 
             let html = `
-                <div class="outlook-pill" style="border-color: #0f172a;">
+                <div class="outlook-pill" style="border-color: var(--text-primary);">
                     <span class="outlook-time">Now</span>
                     <span class="outlook-val" style="color: ${getGlucoseColor(curVal)};">${curVal}</span>
                 </div>
@@ -1159,12 +1457,12 @@
         }
 
         function getGlucoseColor(val) {
-            if (val < 70) return '#991b1b';
-            if (val > 160) return '#92400e';
-            return '#065f46';
+            if (val < 70) return 'var(--low-red-text)';
+            if (val > 160) return 'var(--high-amber-text)';
+            return 'var(--target-green-text)';
         }
 
-        // Render High-Contrast Chart
+        // Render Adaptive High-Contrast Chart
         async function fetchHistoryAndRenderChart(predictions) {
             try {
                 const res = await fetch(`/api/glucose/history?hours=6&_t=${Date.now()}`);
@@ -1189,6 +1487,10 @@
                 const ctx = document.getElementById('patientChart').getContext('2d');
                 if (patientChart) patientChart.destroy();
 
+                const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                const gridColor = isDark ? 'rgba(255, 255, 255, 0.08)' : '#e2e8f0';
+                const tickColor = isDark ? '#cbd5e1' : '#0f172a';
+
                 patientChart = new Chart(ctx, {
                     type: 'line',
                     data: {
@@ -1196,8 +1498,8 @@
                             {
                                 label: 'History',
                                 data: chartHistory,
-                                borderColor: '#059669',
-                                backgroundColor: 'rgba(5, 150, 105, 0.12)',
+                                borderColor: '#10b981',
+                                backgroundColor: 'rgba(16, 185, 129, 0.12)',
                                 borderWidth: 3.5,
                                 fill: true,
                                 tension: 0.35,
@@ -1206,12 +1508,12 @@
                             {
                                 label: '3-Hour Forecast',
                                 data: predPoints,
-                                borderColor: '#0284c7',
+                                borderColor: '#38bdf8',
                                 borderWidth: 3.5,
                                 borderDash: [6, 4],
                                 fill: false,
                                 pointRadius: 4.5,
-                                pointBackgroundColor: '#0284c7'
+                                pointBackgroundColor: '#38bdf8'
                             }
                         ]
                     },
@@ -1221,10 +1523,10 @@
                         plugins: {
                             legend: { display: false },
                             tooltip: {
-                                backgroundColor: '#0f172a',
+                                backgroundColor: isDark ? '#111327' : '#0f172a',
                                 titleColor: '#94a3b8',
                                 bodyColor: '#ffffff',
-                                borderColor: '#334155',
+                                borderColor: isDark ? 'rgba(255,255,255,0.2)' : '#334155',
                                 borderWidth: 2,
                                 titleFont: { size: 13, weight: 'bold' },
                                 bodyFont: { size: 14, weight: 'bold' }
@@ -1236,14 +1538,14 @@
                                 time: {
                                     displayFormats: { hour: 'h a', minute: 'h:mm a' }
                                 },
-                                grid: { color: '#e2e8f0' },
-                                ticks: { color: '#0f172a', font: { size: 11, weight: 'bold' } }
+                                grid: { color: gridColor },
+                                ticks: { color: tickColor, font: { size: 11, weight: 'bold' } }
                             },
                             y: {
                                 min: 50,
                                 max: 280,
-                                grid: { color: '#e2e8f0' },
-                                ticks: { color: '#0f172a', font: { size: 11, weight: 'bold' } }
+                                grid: { color: gridColor },
+                                ticks: { color: tickColor, font: { size: 11, weight: 'bold' } }
                             }
                         }
                     }
@@ -1254,42 +1556,179 @@
             }
         }
 
-        // One-Tap Lantus Logger
-        async function handleLogLantus() {
-            const btn = document.getElementById('btn-mark-lantus');
-            btn.disabled = true;
-            btn.style.opacity = '0.6';
-            btn.innerText = 'Logging 13.0 U Lantus...';
-
-            try {
-                const res = await fetch('/api/insulin/log-lantus-dose?units=13.0', { method: 'POST' });
-                if (res.ok) {
-                    btn.innerText = '✓ 13.0 U Lantus Recorded!';
-                    btn.style.background = '#059669';
-                    setTimeout(() => {
-                        fetchSummary();
-                        btn.disabled = false;
-                        btn.style.opacity = '1';
-                        btn.innerText = '✓ Mark 13.0 U Lantus Taken';
-                        btn.style.background = '#7e22ce';
-                    }, 2000);
-                } else {
-                    alert('Could not log Lantus dose.');
-                    btn.disabled = false;
-                    btn.style.opacity = '1';
-                    btn.innerText = '✓ Mark 13.0 U Lantus Taken';
-                }
-            } catch (e) {
-                alert('Network error logging Lantus.');
-                btn.disabled = false;
-                btn.style.opacity = '1';
-            }
-        }
-
-        // Food Modal
+        // =====================================================================
+        // MULTIMODAL FOOD LOGGING METHODS (Vision, Barcode, Voice, Text NLP)
+        // =====================================================================
         function openFoodModal() { document.getElementById('food-modal').classList.add('open'); }
         function closeFoodModal() { document.getElementById('food-modal').classList.remove('open'); }
         function setCarbInput(val) { document.getElementById('input-carbs').value = val; }
+
+        function switchFoodTab(tabName) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            
+            document.getElementById(`tab-btn-${tabName}`).classList.add('active');
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+        }
+
+        // Voice / Audio Input via Web Speech API
+        function startVoiceInput() {
+            const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRec) {
+                alert('Voice speech recognition is not supported on this browser.');
+                return;
+            }
+            const recognition = new SpeechRec();
+            recognition.lang = 'en-US';
+            recognition.interimResults = false;
+            
+            const btn = document.getElementById('btn-voice-input');
+            const icon = document.getElementById('voice-icon');
+            icon.innerText = '🔴';
+            btn.style.borderColor = '#ef4444';
+
+            recognition.onstart = () => {
+                console.log('Voice recognition started...');
+            };
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                document.getElementById('input-food-desc').value = transcript;
+                interpretFoodText();
+            };
+
+            recognition.onerror = (event) => {
+                console.warn('Voice error:', event.error);
+                icon.innerText = '🎙️';
+                btn.style.borderColor = '';
+            };
+
+            recognition.onend = () => {
+                icon.innerText = '🎙️';
+                btn.style.borderColor = '';
+            };
+
+            recognition.start();
+        }
+
+        // Natural Language Text Interpretation
+        async function interpretFoodText() {
+            const text = document.getElementById('input-food-desc').value.trim();
+            if (!text) return;
+
+            const noteBox = document.getElementById('food-nlp-note');
+            noteBox.style.display = 'block';
+            noteBox.innerText = '🔄 Estimating carbohydrates...';
+
+            try {
+                const res = await fetch('/api/food/interpret', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: text })
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.carbs_g !== undefined) {
+                        document.getElementById('input-carbs').value = data.carbs_g;
+                        noteBox.innerText = `✓ Estimated ~${data.carbs_g}g carbs (${data.description || text})`;
+                    }
+                }
+            } catch (e) {
+                noteBox.innerText = 'Could not auto-estimate. Please enter grams manually.';
+            }
+        }
+
+        // Camera Plate Photo Upload & Vision
+        async function handlePhotoUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const loading = document.getElementById('photo-loading');
+            const resultBox = document.getElementById('photo-result-box');
+            loading.style.display = 'block';
+            resultBox.style.display = 'none';
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const res = await fetch('/api/food/vision', {
+                    method: 'POST',
+                    body: formData
+                });
+                loading.style.display = 'none';
+                if (res.ok) {
+                    const data = await res.json();
+                    resultBox.style.display = 'flex';
+                    document.getElementById('photo-result-title').innerText = '🍽️ ' + (data.description || 'Meal Plate Detected');
+                    document.getElementById('photo-result-desc').innerText = data.note || 'AI portion and carb estimation complete.';
+                    document.getElementById('photo-result-carbs').innerText = `~${data.carbs_g}g Carbs`;
+                    
+                    document.getElementById('input-carbs').value = data.carbs_g;
+                    document.getElementById('input-food-desc').value = data.description || 'Meal Plate';
+                    switchFoodTab('quick');
+                } else {
+                    alert('Error analyzing photo.');
+                }
+            } catch (e) {
+                loading.style.display = 'none';
+                alert('Network error analyzing photo.');
+            }
+        }
+
+        // Barcode Photo Upload / Lookup
+        async function handleBarcodePhotoUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if ('BarcodeDetector' in window) {
+                try {
+                    const detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'qr_code', 'code_128'] });
+                    const imageBitmap = await createImageBitmap(file);
+                    const barcodes = await detector.detect(imageBitmap);
+                    if (barcodes.length > 0) {
+                        const code = barcodes[0].rawValue;
+                        document.getElementById('input-barcode-digits').value = code;
+                        lookupBarcodeDigits();
+                        return;
+                    }
+                } catch (err) {
+                    console.warn('BarcodeDetector error:', err);
+                }
+            }
+            // If barcode not detected directly on device, prompt manual lookup
+            alert('Please enter or verify the barcode numbers from the package.');
+        }
+
+        async function lookupBarcodeDigits() {
+            const code = document.getElementById('input-barcode-digits').value.trim();
+            if (!code) {
+                alert('Please enter a barcode number.');
+                return;
+            }
+
+            const resultBox = document.getElementById('barcode-result-box');
+            resultBox.style.display = 'flex';
+            document.getElementById('barcode-result-title').innerText = '🔄 Looking up barcode...';
+            document.getElementById('barcode-result-desc').innerText = 'Querying Open Food Facts database...';
+            document.getElementById('barcode-result-carbs').innerText = '';
+
+            try {
+                const res = await fetch(`/api/food/barcode/${encodeURIComponent(code)}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('barcode-result-title').innerText = '📦 ' + (data.product_name || `Item ${code}`);
+                    document.getElementById('barcode-result-desc').innerText = `${data.brand ? data.brand + ' • ' : ''}${data.serving_size || ''}`;
+                    document.getElementById('barcode-result-carbs').innerText = `${data.carbs_g}g Carbs`;
+
+                    document.getElementById('input-carbs').value = data.carbs_g;
+                    document.getElementById('input-food-desc').value = data.description || data.product_name;
+                    setTimeout(() => switchFoodTab('quick'), 1200);
+                }
+            } catch (e) {
+                document.getElementById('barcode-result-desc').innerText = 'Product not found. Please enter carbs manually.';
+            }
+        }
 
         async function submitFoodLog() {
             const carbs = parseFloat(document.getElementById('input-carbs').value);
@@ -1309,6 +1748,7 @@
                     closeFoodModal();
                     document.getElementById('input-carbs').value = '';
                     document.getElementById('input-food-desc').value = '';
+                    document.getElementById('food-nlp-note').style.display = 'none';
                     fetchSummary();
                 } else {
                     alert('Error saving food log.');
@@ -1318,18 +1758,23 @@
             }
         }
 
-        // Bolus Modal
+        // =====================================================================
+        // BOLUS MODAL & CONFIRMATION
+        // =====================================================================
         function openBolusModal() { document.getElementById('bolus-modal').classList.add('open'); }
         function closeBolusModal() { document.getElementById('bolus-modal').classList.remove('open'); }
         function setBolusInput(val) { document.getElementById('input-bolus').value = val; }
 
-        async function submitBolusLog() {
+        async function confirmAndSubmitBolus() {
             const units = parseFloat(document.getElementById('input-bolus').value);
             const bolusType = document.getElementById('input-bolus-type').value;
             if (!units || units <= 0) {
                 alert('Please enter insulin units.');
                 return;
             }
+
+            const confirmed = confirm(`⚠️ Confirm Fast-Acting Dose:\n\nAre you sure you want to log ${units.toFixed(1)} Units of ${bolusType.toUpperCase()} insulin?`);
+            if (!confirmed) return;
 
             const payload = {
                 rapid_acting: units,
@@ -1355,6 +1800,74 @@
                 }
             } catch (e) {
                 alert('Network error.');
+            }
+        }
+
+        // =====================================================================
+        // LANTUS SAFETY CONFIRMATION (Hold-To-Confirm Safeguard)
+        // =====================================================================
+        function openLantusSafetyModal() {
+            const modal = document.getElementById('lantus-safety-modal');
+            const fill = document.getElementById('lantus-hold-fill');
+            const text = document.getElementById('lantus-hold-text');
+            fill.style.width = '0%';
+            text.innerText = '⏱️ Press & Hold to Confirm 13.0 U';
+            modal.classList.add('open');
+        }
+
+        function closeLantusSafetyModal() {
+            cancelHoldLantus();
+            document.getElementById('lantus-safety-modal').classList.remove('open');
+        }
+
+        function startHoldLantus(event) {
+            if (event) event.preventDefault();
+            holdStartTime = Date.now();
+            const fill = document.getElementById('lantus-hold-fill');
+            const text = document.getElementById('lantus-hold-text');
+
+            holdTimer = setInterval(() => {
+                const elapsed = Date.now() - holdStartTime;
+                const progress = Math.min(100, (elapsed / HOLD_DURATION_MS) * 100);
+                fill.style.width = `${progress}%`;
+
+                if (progress >= 100) {
+                    clearInterval(holdTimer);
+                    holdTimer = null;
+                    text.innerText = '✓ Recording 13.0 U Lantus...';
+                    executeLantusLog();
+                }
+            }, 30);
+        }
+
+        function cancelHoldLantus(event) {
+            if (holdTimer) {
+                clearInterval(holdTimer);
+                holdTimer = null;
+            }
+            const fill = document.getElementById('lantus-hold-fill');
+            const text = document.getElementById('lantus-hold-text');
+            if (fill) fill.style.width = '0%';
+            if (text) text.innerText = '⏱️ Press & Hold to Confirm 13.0 U';
+        }
+
+        async function executeLantusLog() {
+            try {
+                const res = await fetch('/api/insulin/log-lantus-dose?units=13.0', { method: 'POST' });
+                if (res.ok) {
+                    const text = document.getElementById('lantus-hold-text');
+                    text.innerText = '✓ 13.0 U Lantus Recorded!';
+                    setTimeout(() => {
+                        closeLantusSafetyModal();
+                        fetchSummary();
+                    }, 1200);
+                } else {
+                    alert('Could not log Lantus dose.');
+                    cancelHoldLantus();
+                }
+            } catch (e) {
+                alert('Network error logging Lantus.');
+                cancelHoldLantus();
             }
         }
 

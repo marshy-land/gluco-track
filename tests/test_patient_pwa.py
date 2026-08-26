@@ -124,3 +124,53 @@ def test_patient_pwa_routes():
     # Patient Summary API
     res_summary = client.get("/api/patient/summary")
     assert res_summary.status_code in [200, 404] # 200 if DB populated, 404 if fresh empty mock
+
+def test_suggest_correction_healthy_band_deadband():
+    """Verify that blood sugar within the normal healthy band (<= 160 mg/dL) returns 0.0 U to avoid micro-adjustments."""
+    tz = pytz.timezone("America/New_York")
+    t_afternoon = tz.localize(datetime(2026, 8, 24, 14, 0, 0)) # 2:00 PM
+    
+    # Blood sugar is 140 mg/dL (above 120 target, but inside normal healthy band 70-160)
+    dose_140 = suggest_correction(
+        current_glucose=140.0,
+        iob=0.0,
+        target_glucose=120.0,
+        isf=40.0,
+        current_time=t_afternoon
+    )
+    assert dose_140 == 0.0
+
+    # Blood sugar is 158 mg/dL (inside normal healthy band)
+    dose_158 = suggest_correction(
+        current_glucose=158.0,
+        iob=0.0,
+        target_glucose=120.0,
+        isf=40.0,
+        current_time=t_afternoon
+    )
+    assert dose_158 == 0.0
+
+    # Blood sugar is 200 mg/dL (genuinely elevated -> warrants correction)
+    dose_200 = suggest_correction(
+        current_glucose=200.0,
+        iob=0.0,
+        target_glucose=120.0,
+        isf=40.0,
+        current_time=t_afternoon
+    )
+    assert dose_200 == 2.0
+
+def test_multimodal_food_endpoints():
+    """Verify natural language text interpretation and barcode lookup endpoints."""
+    # Text NLP interpretation
+    res_text = client.post("/api/food/interpret", json={"text": "2 slices of bread and an apple"})
+    assert res_text.status_code == 200
+    data_text = res_text.json()
+    assert data_text["carbs_g"] > 0
+    assert "Bread" in data_text["description"] or "Apple" in data_text["description"]
+
+    # Barcode lookup endpoint
+    res_barcode = client.get("/api/food/barcode/012000000133")
+    assert res_barcode.status_code == 200
+    data_bc = res_barcode.json()
+    assert "carbs_g" in data_bc

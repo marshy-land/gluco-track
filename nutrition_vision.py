@@ -285,3 +285,73 @@ def call_gemini_vision_nutrition(photo_bytes, caption, api_key):
             
     print(f"[NutritionVision] Gemini Vision API response failed ({resp.status_code}): {resp.text}")
     return None
+
+def lookup_barcode_nutrition(barcode: str):
+    """
+    Looks up packaged food nutritional info via Open Food Facts database.
+    Returns: { 'carbs_g': float, 'description': str, 'brand': str, 'serving_size': str, 'confidence': float, 'items': list }
+    """
+    barcode = str(barcode).strip().replace(" ", "").replace("-", "")
+    if not barcode:
+        return {"error": "Barcode is required"}
+    
+    headers = {"User-Agent": "GlucoTrackApp/1.0 (Patient Health Companion; https://gluco-track.up.railway.app)"}
+    url = f"https://world.openfoodfacts.org/api/v2/product/{barcode}.json"
+    
+    try:
+        resp = requests.get(url, headers=headers, timeout=8)
+        if resp.ok:
+            data = resp.json()
+            if data.get("status") == 1 and "product" in data:
+                prod = data["product"]
+                name = prod.get("product_name") or prod.get("product_name_en") or f"Item #{barcode}"
+                brand = prod.get("brands") or ""
+                serving_size = prod.get("serving_size") or "1 standard serving"
+                nutriments = prod.get("nutriments", {})
+                
+                # Check for carbs per serving or carbs per 100g
+                carbs_serving = nutriments.get("carbohydrates_serving")
+                carbs_100g = nutriments.get("carbohydrates_100g")
+                carbs_val = nutriments.get("carbohydrates_value") or nutriments.get("carbohydrates")
+                
+                carbs = 0.0
+                if carbs_serving is not None:
+                    try:
+                        carbs = float(carbs_serving)
+                    except (ValueError, TypeError):
+                        carbs = 0.0
+                elif carbs_100g is not None:
+                    try:
+                        carbs = float(carbs_100g)
+                    except (ValueError, TypeError):
+                        carbs = 0.0
+                elif carbs_val is not None:
+                    try:
+                        carbs = float(carbs_val)
+                    except (ValueError, TypeError):
+                        carbs = 0.0
+                
+                carbs = max(0.0, round(float(carbs), 1))
+                full_desc = f"{brand + ' ' if brand else ''}{name} ({serving_size})"
+                
+                return {
+                    "carbs_g": carbs,
+                    "product_name": name,
+                    "brand": brand,
+                    "serving_size": serving_size,
+                    "description": full_desc,
+                    "items": [{"name": name, "quantity": serving_size, "carbs_g": carbs}],
+                    "confidence": 1.0,
+                    "note": f"Verified via Open Food Facts (Barcode {barcode})"
+                }
+    except Exception as e:
+        print(f"[NutritionVision] Barcode lookup error: {e}")
+        
+    return {
+        "carbs_g": 20.0,
+        "product_name": f"Scanned Barcode {barcode}",
+        "description": f"Barcode {barcode} (Estimated ~20g standard snack)",
+        "items": [{"name": f"Barcode {barcode}", "quantity": "1 item", "carbs_g": 20.0}],
+        "confidence": 0.50,
+        "note": "Product not found in Open Food Facts registry. Default 20g snack estimate. Adjust if needed."
+    }

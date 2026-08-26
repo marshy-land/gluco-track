@@ -257,7 +257,10 @@ def suggest_correction(
         except (ValueError, TypeError):
             pass
 
-    if effective_glucose <= target_glucose:
+    # 3. Normal Healthy Band Deadband:
+    # Do not recommend fast-acting corrections within a normal healthy band (<= 160 mg/dL)
+    # to avoid confusing the patient with minor micro-adjustments in a stable zone.
+    if effective_glucose <= 160.0 or effective_glucose <= target_glucose:
         return 0.0
 
     if isf is None:
@@ -281,7 +284,12 @@ def suggest_correction(
 
     needed_bolus = (effective_glucose - target_glucose) / isf
     suggested = needed_bolus - iob
-    # Conservative rounding down to nearest 0.5 or 0.1 U
+    
+    # Conservative threshold: Ignore micro-doses (< 0.5 U) in near-target territory
+    if suggested < 0.5:
+        return 0.0
+
+    # Conservative rounding down to nearest 0.1 U
     return round(max(0.0, suggested), 1)
 
 def suggest_carbs(current_glucose, forecasted_glucose, iob, target_glucose=100, current_time=None):

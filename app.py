@@ -321,6 +321,9 @@ class FoodEntry(BaseModel):
     food_type: str = None
     timestamp: datetime = None
 
+class FoodInterpretRequest(BaseModel):
+    text: str
+
 @app.post("/api/food/log")
 async def log_food(entry: FoodEntry, background_tasks: BackgroundTasks):
     ts = entry.timestamp if entry.timestamp else datetime.now(timezone.utc)
@@ -335,6 +338,44 @@ async def log_food(entry: FoodEntry, background_tasks: BackgroundTasks):
             background_tasks.add_task(check_and_run_training_background)
             
         return {"status": "success", "id": inserted_id, "timestamp": ts.isoformat()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/food/interpret")
+def api_interpret_food_text(req: FoodInterpretRequest):
+    """Parses natural language food description / transcribed voice and returns carbohydrate estimate."""
+    try:
+        from nutrition_vision import estimate_carbohydrates_from_text
+        res = estimate_carbohydrates_from_text(req.text)
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/food/vision")
+async def api_analyze_food_photo(
+    file: UploadFile = File(...),
+    caption: Optional[str] = Query(default=None)
+):
+    """Analyzes a meal photo taken by the device camera to estimate carbohydrates."""
+    try:
+        from nutrition_vision import analyze_food_photo
+        contents = await file.read()
+        if not contents:
+            raise HTTPException(status_code=400, detail="Empty image uploaded.")
+        res = analyze_food_photo(contents, caption=caption)
+        return res
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/food/barcode/{barcode}")
+def api_lookup_barcode(barcode: str):
+    """Looks up packaged food nutritional info via Open Food Facts database."""
+    try:
+        from nutrition_vision import lookup_barcode_nutrition
+        res = lookup_barcode_nutrition(barcode)
+        return res
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
